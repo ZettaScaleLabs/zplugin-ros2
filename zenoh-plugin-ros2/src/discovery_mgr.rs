@@ -17,10 +17,14 @@ use crate::discovered_entities::ROS2DiscoveryEvent;
 use crate::node_info::*;
 use crate::ros_discovery::*;
 use async_std::task;
+use async_std::task::block_on;
 use cyclors::dds_entity_t;
 use flume::{unbounded, Receiver, Sender};
 use futures::select;
 use log::debug;
+use zenoh::prelude::keyexpr;
+use zenoh::queryable::Query;
+use zenoh_core::zread;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -106,4 +110,13 @@ impl DiscoveryMgr {
             }
         });
     }
+
+
+    pub fn treat_admin_query(&self, query: &Query, admin_keyexpr_prefix: &keyexpr) {
+        // pass query to discovered_entities
+        let discovered_entities = zread!(self.discovered_entities);
+        // TODO: find a better solution than block_on()
+        async_std::task::block_on(discovered_entities.treat_admin_query(query, admin_keyexpr_prefix));
+    }
+
 }

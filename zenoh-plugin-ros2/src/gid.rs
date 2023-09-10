@@ -12,6 +12,7 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zenoh::prelude::OwnedKeyExpr;
 use std::{fmt, ops::Deref, str::FromStr};
 
 pub const NOT_DISCOVERED: Gid = Gid([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);

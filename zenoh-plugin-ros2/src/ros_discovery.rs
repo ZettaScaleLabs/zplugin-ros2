@@ -296,7 +296,7 @@ impl std::fmt::Debug for NodeEntitiesInfo {
         for i in &self.writer_gid_seq {
             writeln!(f, "    {}", i)?;
         }
-        write!(f, "  {} subs:", self.reader_gid_seq.len())?;
+        writeln!(f, "  {} subs:", self.reader_gid_seq.len())?;
         for i in &self.reader_gid_seq {
             writeln!(f, "    {}", i)?;
         }

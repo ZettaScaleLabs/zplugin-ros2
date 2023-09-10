@@ -22,7 +22,7 @@ use futures::select;
 use git_version::git_version;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
-use serde_json::Value;
+use zenoh::queryable::Query;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::env;
@@ -63,6 +63,8 @@ macro_rules! ke_for_sure {
 
 lazy_static::lazy_static!(
     pub static ref LONG_VERSION: String = format!("{} built with {}", GIT_VERSION, env!("RUSTC_VERSION"));
+    pub static ref VERSION_JSON_VALUE: Value =
+        serde_json::Value::String(LONG_VERSION.clone()).into();
     static ref LOG_PAYLOAD: bool = std::env::var("Z_LOG_PAYLOAD").is_ok();
 
     static ref KE_ANY_1_SEGMENT: &'static keyexpr = ke_for_sure!("*");
@@ -250,9 +252,6 @@ impl Serialize for ROS2PluginRuntime<'_> {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref JSON_NULL_VALUE: Value = serde_json::json!(null);
-}
 
 // An reference used in admin space to point to a struct (DdsEntity or Route) stored in another map
 #[derive(Debug)]
@@ -297,15 +296,16 @@ impl<'a> ROS2PluginRuntime<'a> {
 
         // add plugin's config and version in admin space
         self.admin_space
-            .insert("config".try_into().unwrap(), AdminRef::Config);
+            .insert(&admin_keyexpr_prefix / ke_for_sure!("config"), AdminRef::Config);
         self.admin_space
-            .insert("version".try_into().unwrap(), AdminRef::Version);
+            .insert(&admin_keyexpr_prefix / ke_for_sure!("version"), AdminRef::Version);
 
         loop {
             select!(
                 evt = discovery_rcv.recv_async() => {
                     log::info!("EVT: {:?}", evt);
                 },
+
                 group_event = group_subscriber.recv_async() => {
                     match group_event
                     {
@@ -327,30 +327,58 @@ impl<'a> ROS2PluginRuntime<'a> {
                         Err(e) => log::warn!("Error receiving GroupEvent: {}", e)
                     }
                 },
+
+                get_request = admin_queryable.recv_async() => {
+                    if let Ok(query) = get_request {
+                        self.treat_admin_query(&query).await;
+                        // pass query to discovery_mgr
+                        discovery_mgr.treat_admin_query(&query, &admin_keyexpr_prefix);
+                    } else {
+                        log::warn!("AdminSpace queryable was closed!");
+                    }
+                }
             )
         }
     }
-}
 
-// Remove any null QoS values from a serde_json::Value
-fn remove_null_qos_values(
-    value: Result<Value, serde_json::Error>,
-) -> Result<Value, serde_json::Error> {
-    match value {
-        Ok(value) => match value {
-            Value::Object(mut obj) => {
-                let qos = obj.get_mut("qos");
-                if let Some(qos) = qos {
-                    if qos.is_object() {
-                        qos.as_object_mut().unwrap().retain(|_, v| !v.is_null());
-                    }
+    pub async fn treat_admin_query(&self, query: &Query) {
+        let query_ke = query.selector().key_expr;
+        if query_ke.is_wild() {
+            // iterate over all admin space to find matching keys and reply for each
+            for (ke, admin_ref) in self.admin_space.iter() {
+                if query_ke.intersects(ke) {
+                    self.send_admin_reply(query, ke, admin_ref).await;
                 }
-                Ok(Value::Object(obj))
             }
-            _ => Ok(value),
-        },
-        Err(error) => Err(error),
+        } else {
+            // sub_ke correspond to 1 key - just get it and reply
+            let own_ke: OwnedKeyExpr = query_ke.into();
+            if let Some(admin_ref) = self.admin_space.get(&own_ke) {
+                self.send_admin_reply(query, &own_ke, admin_ref).await;
+            }
+        }
     }
+
+    pub async fn send_admin_reply(&self, query: &Query, key_expr: &keyexpr, admin_ref: &AdminRef) {
+        let value: Value = match admin_ref {
+            AdminRef::Version => VERSION_JSON_VALUE.clone(),
+            AdminRef::Config => match serde_json::to_value(self) {
+                Ok(v) => v.into(),
+                Err(e) => {
+                    log::error!("INTERNAL ERROR serializing config as JSON: {}", e);
+                    return;
+                }
+            }
+        };
+        if let Err(e) = query
+            .reply(Ok(Sample::new(key_expr.to_owned(), value)))
+            .res_async()
+            .await
+        {
+            log::warn!("Error replying to admin query {:?}: {}", query, e);
+        }
+    }
+
 }
 
 // Copy and adapt Writer's QoS for creation of a matching Reader
