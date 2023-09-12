@@ -11,15 +11,18 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-
+use serde::ser::SerializeSeq;
+use serde::{Serialize, Serializer};
 use std::collections::HashMap;
 
 use crate::gid::Gid;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct TopicPub {
     pub name: String,
+    #[serde(rename = "type")]
     pub typ: String,
+    #[serde(skip)]
     pub writer: Gid,
 }
 
@@ -43,10 +46,12 @@ impl std::fmt::Debug for TopicPub {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct TopicSub {
     pub name: String,
+    #[serde(rename = "type")]
     pub typ: String,
+    #[serde(skip)]
     pub reader: Gid,
 }
 
@@ -83,10 +88,12 @@ impl std::fmt::Debug for ServiceSrvEntities {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct ServiceSrv {
     pub name: String,
+    #[serde(rename = "type")]
     pub typ: String,
+    #[serde(skip)]
     pub entities: ServiceSrvEntities,
 }
 
@@ -127,10 +134,12 @@ impl std::fmt::Debug for ServiceCliEntities {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct ServiceCli {
     pub name: String,
+    #[serde(rename = "type")]
     pub typ: String,
+    #[serde(skip)]
     pub entities: ServiceCliEntities,
 }
 
@@ -182,10 +191,12 @@ impl std::fmt::Debug for ActionSrvEntities {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct ActionSrv {
     pub name: String,
+    #[serde(rename = "type")]
     pub typ: String,
+    #[serde(skip)]
     pub entities: ActionSrvEntities,
 }
 
@@ -237,10 +248,12 @@ impl std::fmt::Debug for ActionCliEntities {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct ActionCli {
     pub name: String,
+    #[serde(rename = "type")]
     pub typ: String,
+    #[serde(skip)]
     pub entities: ActionCliEntities,
 }
 
@@ -268,14 +281,62 @@ impl std::fmt::Debug for ActionCli {
     }
 }
 
+#[derive(Serialize)]
 pub struct NodeInfo {
-    pub namespace: Option<String>,
+    pub namespace: String,
     pub name: String,
+    #[serde(skip)]
     pub participant: Gid,
+    #[serde(rename = "publishers", serialize_with = "serialize_hashmap_values")]
     pub topic_pub: HashMap<String, TopicPub>,
+    #[serde(rename = "subscribers", serialize_with = "serialize_hashmap_values")]
     pub topic_sub: HashMap<String, TopicSub>,
+    #[serde(
+        rename = "service_servers",
+        serialize_with = "serialize_hashmap_values"
+    )]
     pub service_srv: HashMap<String, ServiceSrv>,
+    #[serde(
+        rename = "service_clients",
+        serialize_with = "serialize_hashmap_values"
+    )]
     pub service_cli: HashMap<String, ServiceCli>,
+    #[serde(rename = "action_servers", serialize_with = "serialize_hashmap_values")]
     pub action_srv: HashMap<String, ActionSrv>,
+    #[serde(rename = "action_clients", serialize_with = "serialize_hashmap_values")]
     pub action_cli: HashMap<String, ActionCli>,
+    pub undiscovered_reader: Vec<Gid>,
+    pub undiscovered_writer: Vec<Gid>,
+}
+
+impl NodeInfo {
+    pub fn create(namespace: String, name: String, participant: Gid) -> NodeInfo {
+        NodeInfo {
+            namespace,
+            name,
+            participant,
+            topic_pub: HashMap::new(),
+            topic_sub: HashMap::new(),
+            service_srv: HashMap::new(),
+            service_cli: HashMap::new(),
+            action_srv: HashMap::new(),
+            action_cli: HashMap::new(),
+            undiscovered_reader: Vec::new(),
+            undiscovered_writer: Vec::new(),
+        }
+    }
+}
+
+fn serialize_hashmap_values<S, T: Serialize>(
+    map: &HashMap<String, T>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut seq: <S as Serializer>::SerializeSeq = serializer.serialize_seq(Some(map.len()))?;
+    for x in map.values() {
+        seq.serialize_element(x)?;
+    }
+    seq.end()
 }

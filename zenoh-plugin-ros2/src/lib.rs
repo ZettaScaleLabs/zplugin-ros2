@@ -22,7 +22,6 @@ use futures::select;
 use git_version::git_version;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
-use zenoh::queryable::Query;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::env;
@@ -32,6 +31,7 @@ use zenoh::liveliness::LivelinessToken;
 use zenoh::plugins::{Plugin, RunningPluginTrait, Runtime, ZenohPlugin};
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
+use zenoh::queryable::Query;
 use zenoh::Result as ZResult;
 use zenoh::Session;
 use zenoh_core::{bail, zerror};
@@ -252,7 +252,6 @@ impl Serialize for ROS2PluginRuntime<'_> {
     }
 }
 
-
 // An reference used in admin space to point to a struct (DdsEntity or Route) stored in another map
 #[derive(Debug)]
 enum AdminRef {
@@ -295,10 +294,14 @@ impl<'a> ROS2PluginRuntime<'a> {
             .expect("Failed to create AdminSpace queryable");
 
         // add plugin's config and version in admin space
-        self.admin_space
-            .insert(&admin_keyexpr_prefix / ke_for_sure!("config"), AdminRef::Config);
-        self.admin_space
-            .insert(&admin_keyexpr_prefix / ke_for_sure!("version"), AdminRef::Version);
+        self.admin_space.insert(
+            &admin_keyexpr_prefix / ke_for_sure!("config"),
+            AdminRef::Config,
+        );
+        self.admin_space.insert(
+            &admin_keyexpr_prefix / ke_for_sure!("version"),
+            AdminRef::Version,
+        );
 
         loop {
             select!(
@@ -368,7 +371,7 @@ impl<'a> ROS2PluginRuntime<'a> {
                     log::error!("INTERNAL ERROR serializing config as JSON: {}", e);
                     return;
                 }
-            }
+            },
         };
         if let Err(e) = query
             .reply(Ok(Sample::new(key_expr.to_owned(), value)))
@@ -378,7 +381,6 @@ impl<'a> ROS2PluginRuntime<'a> {
             log::warn!("Error replying to admin query {:?}: {}", query, e);
         }
     }
-
 }
 
 // Copy and adapt Writer's QoS for creation of a matching Reader

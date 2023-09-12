@@ -20,10 +20,8 @@ use cyclors::qos::{
 use cyclors::*;
 use log::warn;
 use serde::ser::SerializeSeq;
-use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::TryInto;
-use std::ops::Deref;
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
@@ -266,15 +264,13 @@ impl std::fmt::Display for NodeEntitiesInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Node {}/{} : {} pub / {} sub",
+            "{}/{}",
             if &self.node_namespace == "/" {
                 ""
             } else {
                 &self.node_namespace
             },
             self.node_name,
-            self.reader_gid_seq.len(),
-            self.writer_gid_seq.len()
         )?;
         Ok(())
     }
@@ -345,32 +341,6 @@ impl std::fmt::Debug for ParticipantEntitiesInfo {
             write!(f, "{i:?}")?;
         }
         Ok(())
-    }
-}
-
-impl ParticipantEntitiesInfo {
-    // Update with a new map of NodeEntitiesInfo, and cleanup the possibly NodeEntitiesInfo (no readers, no writers)
-    pub(crate) fn update_with(&mut self, nodes_entities: HashMap<String, NodeEntitiesInfo>) {
-        self.node_entities_info_seq.extend(nodes_entities);
-        self.cleanup();
-    }
-
-    pub(crate) fn remove_reader_gid(&mut self, reader_gid: &Gid) {
-        for node in self.node_entities_info_seq.values_mut() {
-            node.reader_gid_seq.retain(|gid| gid != reader_gid);
-        }
-    }
-
-    pub(crate) fn remove_writer_gid(&mut self, writer_gid: &Gid) {
-        for node in self.node_entities_info_seq.values_mut() {
-            node.writer_gid_seq.retain(|gid| gid != writer_gid);
-        }
-    }
-
-    // remove the empty NodeEntitiesInfo (no readers, no writers)
-    pub(crate) fn cleanup(&mut self) {
-        self.node_entities_info_seq
-            .retain(|_, node| !node.reader_gid_seq.is_empty() && !node.writer_gid_seq.is_empty());
     }
 }
 
@@ -473,8 +443,6 @@ where
 }
 
 mod tests {
-    use crate::ros_discovery;
-
     use super::*;
     use std::ops::Deref;
     use std::str::FromStr;

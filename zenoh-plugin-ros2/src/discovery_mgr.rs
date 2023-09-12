@@ -14,31 +14,25 @@
 use crate::dds_discovery::*;
 use crate::discovered_entities::DiscoveredEntities;
 use crate::discovered_entities::ROS2DiscoveryEvent;
-use crate::node_info::*;
 use crate::ros_discovery::*;
 use async_std::task;
-use async_std::task::block_on;
 use cyclors::dds_entity_t;
 use flume::{unbounded, Receiver, Sender};
 use futures::select;
-use log::debug;
-use zenoh::prelude::keyexpr;
-use zenoh::queryable::Query;
-use zenoh_core::zread;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Duration;
+use zenoh::prelude::keyexpr;
+use zenoh::queryable::Query;
+use zenoh_core::zread;
 use zenoh_core::zwrite;
-use zenoh_util::{Timed, TimedEvent, Timer};
+use zenoh_util::{TimedEvent, Timer};
 
-use crate::gid::Gid;
 use crate::ChannelEvent;
 use crate::ROS_DISCOVERY_INFO_POLL_INTERVAL_MS;
 
 pub struct DiscoveryMgr {
     participant: dds_entity_t,
-    ros_disco_mgr: RosDiscoveryInfoMgr,
     discovered_entities: Arc<RwLock<DiscoveredEntities>>,
 }
 
@@ -46,7 +40,6 @@ impl DiscoveryMgr {
     pub fn create(participant: dds_entity_t) -> Result<DiscoveryMgr, String> {
         Ok(DiscoveryMgr {
             participant,
-            ros_disco_mgr: RosDiscoveryInfoMgr::create(participant)?,
             discovered_entities: Arc::new(RwLock::new(Default::default())),
         })
     }
@@ -104,6 +97,7 @@ impl DiscoveryMgr {
                         let infos = ros_disco_mgr.read();
                         for part_info in infos {
                             log::info!("{:?}", part_info);
+                            zwrite!(discovered_entities).update_participant_info(part_info);
                         }
                     }
                 )
@@ -111,12 +105,12 @@ impl DiscoveryMgr {
         });
     }
 
-
     pub fn treat_admin_query(&self, query: &Query, admin_keyexpr_prefix: &keyexpr) {
         // pass query to discovered_entities
         let discovered_entities = zread!(self.discovered_entities);
         // TODO: find a better solution than block_on()
-        async_std::task::block_on(discovered_entities.treat_admin_query(query, admin_keyexpr_prefix));
+        async_std::task::block_on(
+            discovered_entities.treat_admin_query(query, admin_keyexpr_prefix),
+        );
     }
-
 }
