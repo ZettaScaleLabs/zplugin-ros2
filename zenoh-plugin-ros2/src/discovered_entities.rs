@@ -201,100 +201,158 @@ impl DiscoveredEntities {
     ) {
         for rgid in &ros_node_info.reader_gid_seq {
             if let Some(entity) = readers.get(rgid) {
+                log::info!("{ros_node_info} declares Reader on {}", entity.topic_name);
                 let (topic_prefix, topic_suffix) = entity.topic_name.split_at(3);
-                match topic_prefix {
-                    "rt/" => {
-                        log::warn!("{} TOPIC Reader: {}", ros_node_info, topic_suffix);
-                        node.topic_sub.insert(
-                            topic_suffix.into(),
-                            TopicSub {
-                                name: topic_suffix.into(),
-                                typ: entity.type_name.clone(),
-                                reader: *rgid,
-                            },
-                        );
+                let event = match topic_prefix {
+                    "rt/" if topic_suffix.ends_with("/_action/status") => node
+                        .update_action_cli_status_reader(
+                            &topic_suffix[..topic_suffix.len() - 15],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rt/" if topic_suffix.ends_with("/_action/feedback") => node
+                        .update_action_cli_feedback_reader(
+                            &topic_suffix[..topic_suffix.len() - 17],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rt/" => node.update_topic_sub(topic_suffix, &entity.type_name, rgid),
+                    "rq/" if topic_suffix.ends_with("/_action/send_goalRequest") => node
+                        .update_action_srv_send_req_reader(
+                            &topic_suffix[..topic_suffix.len() - 25],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rq/" if topic_suffix.ends_with("/_action/cancel_goalRequest") => node
+                        .update_action_srv_cancel_req_reader(
+                            &topic_suffix[..topic_suffix.len() - 27],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rq/" if topic_suffix.ends_with("/_action/get_resultRequest") => node
+                        .update_action_srv_result_req_reader(
+                            &topic_suffix[..topic_suffix.len() - 26],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rq/" if topic_suffix.ends_with("Request") => node
+                        .update_service_srv_req_reader(
+                            &topic_suffix[..topic_suffix.len() - 7],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rr/" if topic_suffix.ends_with("/_action/send_goalReply") => node
+                        .update_action_cli_send_rep_reader(
+                            &topic_suffix[..topic_suffix.len() - 23],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rr/" if topic_suffix.ends_with("/_action/cancel_goalReply") => node
+                        .update_action_cli_cancel_rep_reader(
+                            &topic_suffix[..topic_suffix.len() - 25],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rr/" if topic_suffix.ends_with("/_action/get_resultReply") => node
+                        .update_action_cli_result_rep_reader(
+                            &topic_suffix[..topic_suffix.len() - 24],
+                            &entity.type_name,
+                            rgid,
+                        ),
+                    "rr/" if topic_suffix.ends_with("Reply") => node.update_service_cli_rep_reader(
+                        &topic_suffix[..topic_suffix.len() - 5],
+                        &entity.type_name,
+                        rgid,
+                    ),
+                    _ => {
+                        log::error!("{ros_node_info} NON-ROS2 Reader: {}", entity.topic_name);
+                        None
                     }
-                    "rq/" => {
-                        log::warn!("{} SVC_SRV Reader: {}", ros_node_info, topic_suffix);
-                        let service_srv = node
-                            .service_srv
-                            .entry(topic_suffix.into())
-                            .or_insert_with(|| {
-                                ServiceSrv::create(topic_suffix.into(), entity.type_name.clone())
-                            });
-                        service_srv.entities.req_reader = *rgid;
-                    }
-                    "rr/" => {
-                        log::warn!("{} SVC_CLI Reader: {}", ros_node_info, topic_suffix);
-                        let service_cli = node
-                            .service_cli
-                            .entry(topic_suffix.into())
-                            .or_insert_with(|| {
-                                ServiceCli::create(topic_suffix.into(), entity.type_name.clone())
-                            });
-                        service_cli.entities.rep_reader = *rgid;
-                    }
-                    _ => log::error!("{} NON-ROS2 Reader: {}", ros_node_info, entity.topic_name),
+                };
+                if let Some(e) = event {
+                    log::warn!("{ros_node_info} declares {e:?}");
                 }
             } else {
-                log::warn!(
-                    "{} declares an undiscovered Reader: {}",
-                    ros_node_info,
-                    rgid
-                );
+                log::warn!("{ros_node_info} declares an undiscovered Reader: {rgid}");
                 node.undiscovered_reader.push(*rgid);
             }
         }
 
         for wgid in &ros_node_info.writer_gid_seq {
-            if let Some(entity) = readers.get(wgid) {
+            if let Some(entity) = writers.get(wgid) {
+                log::info!("{ros_node_info} declares Writer on {}", entity.topic_name);
                 let (topic_prefix, topic_suffix) = entity.topic_name.split_at(3);
-                match topic_prefix {
-                    "rt/" => {
-                        log::warn!("{} TOPIC Writer: {}", ros_node_info, topic_suffix);
-                        node.topic_pub.insert(
-                            topic_suffix.into(),
-                            TopicPub {
-                                name: topic_suffix.into(),
-                                typ: entity.type_name.clone(),
-                                writer: *wgid,
-                            },
-                        );
+                let event = match topic_prefix {
+                    "rt/" if topic_suffix.ends_with("/_action/status") => node
+                        .update_action_srv_status_writer(
+                            &topic_suffix[..topic_suffix.len() - 15],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rt/" if topic_suffix.ends_with("/_action/feedback") => node
+                        .update_action_srv_feedback_writer(
+                            &topic_suffix[..topic_suffix.len() - 17],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rt/" => node.update_topic_pub(topic_suffix, &entity.type_name, wgid),
+                    "rq/" if topic_suffix.ends_with("/_action/send_goalRequest") => node
+                        .update_action_cli_send_req_writer(
+                            &topic_suffix[..topic_suffix.len() - 25],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rq/" if topic_suffix.ends_with("/_action/cancel_goalRequest") => node
+                        .update_action_cli_cancel_req_writer(
+                            &topic_suffix[..topic_suffix.len() - 27],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rq/" if topic_suffix.ends_with("/_action/get_resultRequest") => node
+                        .update_action_cli_result_req_writer(
+                            &topic_suffix[..topic_suffix.len() - 26],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rq/" if topic_suffix.ends_with("Request") => node
+                        .update_service_cli_req_writer(
+                            &topic_suffix[..topic_suffix.len() - 7],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rr/" if topic_suffix.ends_with("/_action/send_goalReply") => node
+                        .update_action_srv_send_rep_writer(
+                            &topic_suffix[..topic_suffix.len() - 23],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rr/" if topic_suffix.ends_with("/_action/cancel_goalReply") => node
+                        .update_action_srv_cancel_rep_writer(
+                            &topic_suffix[..topic_suffix.len() - 25],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rr/" if topic_suffix.ends_with("/_action/get_resultReply") => node
+                        .update_action_srv_result_rep_writer(
+                            &topic_suffix[..topic_suffix.len() - 24],
+                            &entity.type_name,
+                            wgid,
+                        ),
+                    "rr/" if topic_suffix.ends_with("Reply") => node.update_service_srv_rep_writer(
+                        &topic_suffix[..topic_suffix.len() - 5],
+                        &entity.type_name,
+                        wgid,
+                    ),
+                    _ => {
+                        log::error!("{ros_node_info} NON-ROS2 Reader: {}", entity.topic_name);
+                        None
                     }
-                    "rq/" => {
-                        log::warn!("{} SVC_CLI Writer: {}", ros_node_info, topic_suffix);
-                        let service_cli = node
-                            .service_cli
-                            .entry(topic_suffix.into())
-                            .or_insert_with(|| {
-                                ServiceCli::create(topic_suffix.into(), entity.type_name.clone())
-                            });
-                        service_cli.entities.req_writer = *wgid;
-                    }
-                    "rr/" => {
-                        log::warn!("{} SVC_SRV Writer: {}", ros_node_info, topic_suffix);
-                        let service_srv = node
-                            .service_srv
-                            .entry(topic_suffix.into())
-                            .or_insert_with(|| {
-                                ServiceSrv::create(topic_suffix.into(), entity.type_name.clone())
-                            });
-                        service_srv.entities.rep_writer = *wgid;
-                    }
-                    _ => log::error!("{} NON-ROS2 Reader: {}", ros_node_info, entity.topic_name),
-                }
-                match topic_prefix {
-                    "rt/" => log::warn!("{} TOPIC Writer: {}", ros_node_info, topic_suffix),
-                    "rq/" => log::warn!("{} SVC_CLI Writer: {}", ros_node_info, topic_suffix),
-                    "rr/" => log::warn!("{} SVC_SRC Writer: {}", ros_node_info, topic_suffix),
-                    _ => log::error!("{} NON-ROS2 Reader: {}", ros_node_info, entity.topic_name),
+                };
+                if let Some(e) = event {
+                    log::warn!("{ros_node_info} declares {e:?}");
                 }
             } else {
-                log::warn!(
-                    "{} declares an undiscovered Reader: {}",
-                    ros_node_info,
-                    wgid
-                );
+                log::warn!("{ros_node_info} declares an undiscovered Writer: {wgid}");
                 node.undiscovered_writer.push(*wgid);
             }
         }
@@ -392,18 +450,18 @@ impl DiscoveredEntities {
 
 #[derive(Debug)]
 pub enum ROS2DiscoveryEvent {
-    DiscoveredTopicPub { tpub: TopicPub },
-    UndiscoveredTopicPub { name: String },
-    DiscoveredTopicSub { tsub: TopicSub },
-    UndiscoveredTopicSub { name: String },
-    DiscoveredServiceSrv { tsub: ServiceSrv },
-    UndiscoveredServiceSrv { name: String },
-    DiscoveredServiceCli { tsub: ServiceCli },
-    UndiscoveredServiceCli { name: String },
-    DiscoveredActionSrv { tsub: ActionSrv },
-    UndiscoveredActionSrv { name: String },
-    DiscoveredActionCli { tsub: ActionCli },
-    UndiscoveredActionCli { name: String },
+    DiscoveredTopicPub(TopicPub),
+    UndiscoveredTopicPub(String),
+    DiscoveredTopicSub(TopicSub),
+    UndiscoveredTopicSub(String),
+    DiscoveredServiceSrv(ServiceSrv),
+    UndiscoveredServiceSrv(String),
+    DiscoveredServiceCli(ServiceCli),
+    UndiscoveredServiceCli(String),
+    DiscoveredActionSrv(ActionSrv),
+    UndiscoveredActionSrv(String),
+    DiscoveredActionCli(ActionCli),
+    UndiscoveredActionCli(String),
 }
 
 // Remove any null QoS values from a serde_json::Value

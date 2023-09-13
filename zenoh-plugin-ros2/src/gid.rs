@@ -14,14 +14,16 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{fmt, ops::Deref, str::FromStr};
 
-pub const NOT_DISCOVERED: Gid = Gid([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Gid([u8; 16]);
 
+impl Gid {
+    pub const NOT_DISCOVERED: Gid = Gid([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+}
+
 impl Default for Gid {
     fn default() -> Self {
-        NOT_DISCOVERED
+        Gid::NOT_DISCOVERED
     }
 }
 
@@ -88,7 +90,7 @@ impl<'de> Deserialize<'de> for Gid {
 
 impl fmt::Debug for Gid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self == &NOT_DISCOVERED {
+        if self == &Gid::NOT_DISCOVERED {
             write!(f, "NOT_DISCOVERED")
         } else {
             let s = hex::encode(&self.0);

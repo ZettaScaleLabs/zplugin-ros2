@@ -96,7 +96,7 @@ impl DiscoveryMgr {
                     _ = ros_disco_timer_rcv.recv_async() => {
                         let infos = ros_disco_mgr.read();
                         for part_info in infos {
-                            log::info!("{:?}", part_info);
+                            log::info!("Received ros_discovery_info from {}", part_info);
                             zwrite!(discovered_entities).update_participant_info(part_info);
                         }
                     }

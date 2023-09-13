@@ -15,7 +15,6 @@ use async_std::task;
 use cyclors::qos::{History, HistoryKind, Qos};
 use cyclors::*;
 use flume::Sender;
-use log::{debug, error, warn};
 use serde::{Deserialize, Serialize, Serializer};
 use std::ffi::{CStr, CString};
 use std::fmt;
@@ -306,14 +305,15 @@ unsafe extern "C" fn on_data(dr: dds_entity_t, arg: *mut std::os::raw::c_void) {
                     let topic_name = match CStr::from_ptr((*sample).topic_name).to_str() {
                         Ok(s) => s,
                         Err(e) => {
-                            warn!("Discovery of an invalid topic name: {}", e);
+                            log::warn!("Discovery of an invalid topic name: {}", e);
                             continue;
                         }
                     };
                     if topic_name.starts_with("DCPS") {
-                        debug!(
+                        log::debug!(
                             "Ignoring discovery of {} ({} is a builtin topic)",
-                            key, topic_name
+                            key,
+                            topic_name
                         );
                         continue;
                     }
@@ -321,16 +321,21 @@ unsafe extern "C" fn on_data(dr: dds_entity_t, arg: *mut std::os::raw::c_void) {
                     let type_name = match CStr::from_ptr((*sample).type_name).to_str() {
                         Ok(s) => s,
                         Err(e) => {
-                            warn!("Discovery of an invalid topic type: {}", e);
+                            log::warn!("Discovery of an invalid topic type: {}", e);
                             continue;
                         }
                     };
                     let participant_key = (*sample).participant_key.v.into();
                     let keyless = (*sample).key.v[15] == 3 || (*sample).key.v[15] == 4;
 
-                    debug!(
+                    log::debug!(
                         "Discovered DDS {} {} from Participant {} on {} with type {} (keyless: {})",
-                        discovery_type, key, participant_key, topic_name, type_name, keyless
+                        discovery_type,
+                        key,
+                        participant_key,
+                        topic_name,
+                        type_name,
+                        keyless
                     );
 
                     let mut type_info: *const dds_typeinfo_t = std::ptr::null();
@@ -340,12 +345,15 @@ unsafe extern "C" fn on_data(dr: dds_entity_t, arg: *mut std::os::raw::c_void) {
                         0 => match type_info.is_null() {
                             false => Some(TypeInfo::new(type_info)),
                             true => {
-                                debug!("Type information not available for type {}", type_name);
+                                log::trace!(
+                                    "Type information not available for type {}",
+                                    type_name
+                                );
                                 None
                             }
                         },
                         _ => {
-                            warn!(
+                            log::warn!(
                                 "Failed to lookup type information({})",
                                 CStr::from_ptr(dds_strretcode(ret))
                                     .to_str()
@@ -404,7 +412,7 @@ unsafe extern "C" fn on_data(dr: dds_entity_t, arg: *mut std::os::raw::c_void) {
                 }
 
                 if is_alive {
-                    debug!("Discovered DDS Participant {})", key,);
+                    log::debug!("Discovered DDS Participant {})", key,);
 
                     // Send a DDSDiscoveryEvent
                     let entity = DdsParticipant {
@@ -435,7 +443,7 @@ unsafe extern "C" fn on_data(dr: dds_entity_t, arg: *mut std::os::raw::c_void) {
 
 fn send_discovery_event(sender: &Sender<DDSDiscoveryEvent>, event: DDSDiscoveryEvent) {
     if let Err(e) = sender.try_send(event) {
-        error!(
+        log::error!(
             "INTERNAL ERROR sending DDSDiscoveryEvent to internal channel: {:?}",
             e
         );

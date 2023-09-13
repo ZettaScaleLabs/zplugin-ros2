@@ -325,9 +325,12 @@ impl ParticipantEntitiesInfo {
 
 impl std::fmt::Display for ParticipantEntitiesInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "participant {} : [", self.gid)?;
-        for i in self.node_entities_info_seq.values() {
-            write!(f, "({i}), ")?;
+        write!(f, "participant {} with nodes: [", self.gid)?;
+        for (name, _) in self.node_entities_info_seq.iter().take(1) {
+            write!(f, "{}", name)?;
+        }
+        for (name, _) in self.node_entities_info_seq.iter().skip(1) {
+            write!(f, ", {}", name)?;
         }
         write!(f, "]")?;
         Ok(())
