@@ -388,7 +388,7 @@ impl NodeInfo {
     pub fn update_topic_pub(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredTopicPub;
@@ -396,7 +396,7 @@ impl NodeInfo {
             Entry::Vacant(e) => {
                 let tpub = e.insert(TopicPub {
                     name: name.into(),
-                    typ: typ.into(),
+                    typ: typ,
                     writer: *writer,
                 });
                 Some(DiscoveredTopicPub(tpub.clone()))
@@ -408,7 +408,7 @@ impl NodeInfo {
                     log::warn!(
                         r#"ROS declaration of Publisher "{v}" changed it's type to "{typ}""#
                     );
-                    v.typ = typ.into();
+                    v.typ = typ;
                     result = Some(DiscoveredTopicPub(v.clone()));
                 }
                 if v.writer != *writer {
@@ -428,7 +428,7 @@ impl NodeInfo {
     pub fn update_topic_sub(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredTopicSub;
@@ -436,7 +436,7 @@ impl NodeInfo {
             Entry::Vacant(e) => {
                 let tsub = e.insert(TopicSub {
                     name: name.into(),
-                    typ: typ.into(),
+                    typ: typ,
                     reader: *reader,
                 });
                 Some(DiscoveredTopicSub(tsub.clone()))
@@ -448,7 +448,7 @@ impl NodeInfo {
                     log::warn!(
                         r#"ROS declaration of Subscriber "{v}" changed it's type to "{typ}""#
                     );
-                    v.typ = typ.into();
+                    v.typ = typ;
                     result = Some(DiscoveredTopicSub(v.clone()));
                 }
                 if v.reader != *reader {
@@ -468,13 +468,13 @@ impl NodeInfo {
     pub fn update_service_srv_req_reader(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredServiceSrv;
         match self.service_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ServiceSrv::create(name.into(), typ.into()));
+                let v = e.insert(ServiceSrv::create(name.into(), typ));
                 v.entities.req_reader = *reader;
                 None
             }
@@ -485,7 +485,7 @@ impl NodeInfo {
                     log::warn!(
                         r#"ROS declaration of Service Server "{v}" changed it's type to "{typ}""#
                     );
-                    v.typ = typ.into();
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredServiceSrv(v.clone()))
                     };
@@ -511,13 +511,13 @@ impl NodeInfo {
     pub fn update_service_srv_rep_writer(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredServiceSrv;
         match self.service_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ServiceSrv::create(name.into(), typ.into()));
+                let v = e.insert(ServiceSrv::create(name.into(), typ));
                 v.entities.rep_writer = *writer;
                 None
             }
@@ -528,7 +528,7 @@ impl NodeInfo {
                     log::warn!(
                         r#"ROS declaration of Service Server "{v}" changed it's type to "{typ}""#
                     );
-                    v.typ = typ.into();
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredServiceSrv(v.clone()))
                     };
@@ -554,13 +554,13 @@ impl NodeInfo {
     pub fn update_service_cli_rep_reader(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredServiceCli;
         match self.service_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ServiceCli::create(name.into(), typ.into()));
+                let v = e.insert(ServiceCli::create(name.into(), typ));
                 v.entities.rep_reader = *reader;
                 None
             }
@@ -571,7 +571,7 @@ impl NodeInfo {
                     log::warn!(
                         r#"ROS declaration of Service Client "{v}" changed it's type to "{typ}""#
                     );
-                    v.typ = typ.into();
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredServiceCli(v.clone()))
                     };
@@ -597,13 +597,13 @@ impl NodeInfo {
     pub fn update_service_cli_req_writer(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredServiceCli;
         match self.service_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ServiceCli::create(name.into(), typ.into()));
+                let v = e.insert(ServiceCli::create(name.into(), typ));
                 v.entities.req_writer = *writer;
                 None
             }
@@ -614,7 +614,7 @@ impl NodeInfo {
                     log::warn!(
                         r#"ROS declaration of Service Server "{v}" changed it's type to "{typ}""#
                     );
-                    v.typ = typ.into();
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredServiceCli(v.clone()))
                     };
@@ -640,13 +640,13 @@ impl NodeInfo {
     pub fn update_action_srv_send_req_reader(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ.into()));
+                let v = e.insert(ActionSrv::create(name.into(), typ));
                 v.entities.send_goal.req_reader = *reader;
                 None
             }
@@ -654,10 +654,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionSrv(v.clone()))
                     };
@@ -683,13 +685,13 @@ impl NodeInfo {
     pub fn update_action_srv_send_rep_writer(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ.into()));
+                let v = e.insert(ActionSrv::create(name.into(), typ));
                 v.entities.send_goal.rep_writer = *writer;
                 None
             }
@@ -697,10 +699,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionSrv(v.clone()))
                     };
@@ -723,31 +727,23 @@ impl NodeInfo {
     }
 
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
+    // NOTE: type of CancelGoal topic does not reflect the action type.
+    //       Thus we don't update it or we create ActionCli with as an empty String as type.
     pub fn update_action_srv_cancel_req_reader(
         &mut self,
         name: &str,
-        typ: &str,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ.into()));
+                let v = e.insert(ActionSrv::create(name.into(), String::new()));
                 v.entities.cancel_goal.req_reader = *reader;
                 None
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
                 let mut result = None;
-                if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
-                    if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
-                    };
-                }
                 if v.entities.cancel_goal.req_reader != *reader {
                     if v.entities.cancel_goal.req_reader != Gid::NOT_DISCOVERED {
                         log::debug!(
@@ -766,31 +762,23 @@ impl NodeInfo {
     }
 
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
+    // NOTE: type of CancelGoal topic does not reflect the action type.
+    //       Thus we don't update it or we create ActionCli with as an empty String as type.
     pub fn update_action_srv_cancel_rep_writer(
         &mut self,
         name: &str,
-        typ: &str,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ.into()));
+                let v = e.insert(ActionSrv::create(name.into(), String::new()));
                 v.entities.cancel_goal.rep_writer = *writer;
                 None
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
                 let mut result = None;
-                if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
-                    if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
-                    };
-                }
                 if v.entities.cancel_goal.rep_writer != *writer {
                     if v.entities.cancel_goal.rep_writer != Gid::NOT_DISCOVERED {
                         log::debug!(
@@ -812,13 +800,13 @@ impl NodeInfo {
     pub fn update_action_srv_result_req_reader(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ.into()));
+                let v = e.insert(ActionSrv::create(name.into(), typ));
                 v.entities.get_result.req_reader = *reader;
                 None
             }
@@ -826,10 +814,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionSrv(v.clone()))
                     };
@@ -855,13 +845,13 @@ impl NodeInfo {
     pub fn update_action_srv_result_rep_writer(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ.into()));
+                let v = e.insert(ActionSrv::create(name.into(), typ));
                 v.entities.get_result.rep_writer = *writer;
                 None
             }
@@ -869,10 +859,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionSrv(v.clone()))
                     };
@@ -895,31 +887,23 @@ impl NodeInfo {
     }
 
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
+    // NOTE: type of Status topic does not reflect the action type.
+    //       Thus we don't update it or we create ActionCli with as an empty String as type.
     pub fn update_action_srv_status_writer(
         &mut self,
         name: &str,
-        typ: &str,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ.into()));
+                let v = e.insert(ActionSrv::create(name.into(), String::new()));
                 v.entities.status_writer = *writer;
                 None
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
                 let mut result = None;
-                if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
-                    if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
-                    };
-                }
                 if v.entities.status_writer != *writer {
                     if v.entities.status_writer != Gid::NOT_DISCOVERED {
                         log::debug!(
@@ -941,13 +925,13 @@ impl NodeInfo {
     pub fn update_action_srv_feedback_writer(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ.into()));
+                let v = e.insert(ActionSrv::create(name.into(), typ));
                 v.entities.feedback_writer = *writer;
                 None
             }
@@ -955,10 +939,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Server "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionSrv(v.clone()))
                     };
@@ -980,19 +966,17 @@ impl NodeInfo {
         }
     }
 
-    /////////////////////////
-
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
     pub fn update_action_cli_send_rep_reader(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ.into()));
+                let v = e.insert(ActionCli::create(name.into(), typ));
                 v.entities.send_goal.rep_reader = *reader;
                 None
             }
@@ -1000,10 +984,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionCli(v.clone()))
                     };
@@ -1029,13 +1015,13 @@ impl NodeInfo {
     pub fn update_action_cli_send_req_writer(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ.into()));
+                let v = e.insert(ActionCli::create(name.into(), typ));
                 v.entities.send_goal.req_writer = *writer;
                 None
             }
@@ -1043,10 +1029,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionCli(v.clone()))
                     };
@@ -1069,31 +1057,23 @@ impl NodeInfo {
     }
 
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
+    // NOTE: type of CancelGoal topic does not reflect the action type.
+    //       Thus we don't update it or we create ActionCli with as an empty String as type.
     pub fn update_action_cli_cancel_rep_reader(
         &mut self,
         name: &str,
-        typ: &str,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ.into()));
+                let v = e.insert(ActionCli::create(name.into(), String::new()));
                 v.entities.cancel_goal.rep_reader = *reader;
                 None
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
                 let mut result = None;
-                if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
-                    if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
-                    };
-                }
                 if v.entities.cancel_goal.rep_reader != *reader {
                     if v.entities.cancel_goal.rep_reader != Gid::NOT_DISCOVERED {
                         log::debug!(
@@ -1112,31 +1092,23 @@ impl NodeInfo {
     }
 
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
+    // NOTE: type of CancelGoal topic does not reflect the action type.
+    //       Thus we don't update it or we create ActionCli with as an empty String as type.
     pub fn update_action_cli_cancel_req_writer(
         &mut self,
         name: &str,
-        typ: &str,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ.into()));
+                let v = e.insert(ActionCli::create(name.into(), String::new()));
                 v.entities.cancel_goal.req_writer = *writer;
                 None
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
                 let mut result = None;
-                if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
-                    if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
-                    };
-                }
                 if v.entities.cancel_goal.req_writer != *writer {
                     if v.entities.cancel_goal.req_writer != Gid::NOT_DISCOVERED {
                         log::debug!(
@@ -1158,13 +1130,13 @@ impl NodeInfo {
     pub fn update_action_cli_result_rep_reader(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ.into()));
+                let v = e.insert(ActionCli::create(name.into(), typ));
                 v.entities.get_result.rep_reader = *reader;
                 None
             }
@@ -1172,10 +1144,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionCli(v.clone()))
                     };
@@ -1201,13 +1175,13 @@ impl NodeInfo {
     pub fn update_action_cli_result_req_writer(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ.into()));
+                let v = e.insert(ActionCli::create(name.into(), typ));
                 v.entities.get_result.req_writer = *writer;
                 None
             }
@@ -1215,10 +1189,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionCli(v.clone()))
                     };
@@ -1241,31 +1217,23 @@ impl NodeInfo {
     }
 
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
+    // NOTE: type of Status topic does not reflect the action type.
+    //       Thus we don't update it or we create ActionCli with as an empty String as type.
     pub fn update_action_cli_status_reader(
         &mut self,
         name: &str,
-        typ: &str,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ.into()));
+                let v = e.insert(ActionCli::create(name.into(), String::new()));
                 v.entities.status_reader = *reader;
                 None
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
                 let mut result = None;
-                if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
-                    if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
-                    };
-                }
                 if v.entities.status_reader != *reader {
                     if v.entities.status_reader != Gid::NOT_DISCOVERED {
                         log::debug!(
@@ -1287,13 +1255,13 @@ impl NodeInfo {
     pub fn update_action_cli_feedback_reader(
         &mut self,
         name: &str,
-        typ: &str,
+        typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ.into()));
+                let v = e.insert(ActionCli::create(name.into(), typ));
                 v.entities.feedback_reader = *reader;
                 None
             }
@@ -1301,10 +1269,12 @@ impl NodeInfo {
                 let v = e.get_mut();
                 let mut result = None;
                 if v.typ != typ {
-                    log::warn!(
-                        r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
-                    );
-                    v.typ = typ.into();
+                    if !v.typ.is_empty() {
+                        log::warn!(
+                            r#"ROS declaration of Action Client "{v}" changed it's type to "{typ}""#
+                        );
+                    }
+                    v.typ = typ;
                     if v.is_complete() {
                         result = Some(DiscoveredActionCli(v.clone()))
                     };
