@@ -81,7 +81,8 @@ impl DiscoveredEntities {
     }
 
     #[inline]
-    pub fn add_writer(&mut self, writer: DdsEntity) {
+    pub fn add_writer(&mut self, writer: DdsEntity) -> Option<ROS2DiscoveryEvent> {
+        // insert in admin space
         self.admin_space.insert(
             zenoh::keformat!(
                 ke_admin_writer::formatter(),
@@ -92,7 +93,21 @@ impl DiscoveredEntities {
             .unwrap(),
             EntityRef::Writer(writer.key),
         );
+
+        // Check if this Writer was declared by ros_discovery_info before its discovery
+        let mut event = None;
+        for (_, nodes_map) in &mut self.nodes_info {
+            for (_, node) in nodes_map {
+                if let Some(i) = node.undiscovered_writer.iter().position(|gid| gid == &writer.key) {
+                    node.undiscovered_writer.remove(i);
+                    event = node.update_with_writer(&writer);
+                }
+            }
+        }
+
+        // insert in Writers list
         self.writers.insert(writer.key, writer);
+        event
     }
 
     #[inline]
@@ -111,7 +126,8 @@ impl DiscoveredEntities {
     }
 
     #[inline]
-    pub fn add_reader(&mut self, reader: DdsEntity) {
+    pub fn add_reader(&mut self, reader: DdsEntity) -> Option<ROS2DiscoveryEvent> {
+        // insert in admin space
         self.admin_space.insert(
             zenoh::keformat!(
                 ke_admin_reader::formatter(),
@@ -122,7 +138,21 @@ impl DiscoveredEntities {
             .unwrap(),
             EntityRef::Reader(reader.key),
         );
+
+        // Check if this Reader was declared by ros_discovery_info before its discovery
+        let mut event = None;
+        for (_, nodes_map) in &mut self.nodes_info {
+            for (_, node) in nodes_map {
+                if let Some(i) = node.undiscovered_reader.iter().position(|gid| gid == &reader.key) {
+                    node.undiscovered_reader.remove(i);
+                    event = node.update_with_writer(&reader);
+                }
+            }
+        }
+
+        // insert in Readers list
         self.readers.insert(reader.key, reader);
+        event
     }
 
     #[inline]
@@ -200,77 +230,11 @@ impl DiscoveredEntities {
         readers: &mut HashMap<Gid, DdsEntity>,
         writers: &mut HashMap<Gid, DdsEntity>,
     ) {
+        // For each declared Reader
         for rgid in &ros_node_info.reader_gid_seq {
             if let Some(entity) = readers.get(rgid) {
                 log::debug!("ROS2 Node {ros_node_info} declares Reader on {}", entity.topic_name);
-                let (topic_prefix, topic_suffix) = entity.topic_name.split_at(3);
-                let event = match topic_prefix {
-                    "rt/" if topic_suffix.ends_with("/_action/status") => node
-                        .update_action_cli_status_reader(
-                            &topic_suffix[..topic_suffix.len() - 15],
-                            rgid,
-                        ),
-                    "rt/" if topic_suffix.ends_with("/_action/feedback") => node
-                        .update_action_cli_feedback_reader(
-                            &topic_suffix[..topic_suffix.len() - 17],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            rgid,
-                        ),
-                    "rt/" => node.update_topic_sub(
-                        topic_suffix,
-                        dds_pubsub_topic_to_ros(&entity.type_name),
-                        rgid,
-                    ),
-                    "rq/" if topic_suffix.ends_with("/_action/send_goalRequest") => node
-                        .update_action_srv_send_req_reader(
-                            &topic_suffix[..topic_suffix.len() - 25],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            rgid,
-                        ),
-                    "rq/" if topic_suffix.ends_with("/_action/cancel_goalRequest") => node
-                        .update_action_srv_cancel_req_reader(
-                            &topic_suffix[..topic_suffix.len() - 27],
-                            rgid,
-                        ),
-                    "rq/" if topic_suffix.ends_with("/_action/get_resultRequest") => node
-                        .update_action_srv_result_req_reader(
-                            &topic_suffix[..topic_suffix.len() - 26],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            rgid,
-                        ),
-                    "rq/" if topic_suffix.ends_with("Request") => node
-                        .update_service_srv_req_reader(
-                            &topic_suffix[..topic_suffix.len() - 7],
-                            dds_service_topic_to_ros(&entity.type_name),
-                            rgid,
-                        ),
-                    "rr/" if topic_suffix.ends_with("/_action/send_goalReply") => node
-                        .update_action_cli_send_rep_reader(
-                            &topic_suffix[..topic_suffix.len() - 23],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            rgid,
-                        ),
-                    "rr/" if topic_suffix.ends_with("/_action/cancel_goalReply") => node
-                        .update_action_cli_cancel_rep_reader(
-                            &topic_suffix[..topic_suffix.len() - 25],
-                            rgid,
-                        ),
-                    "rr/" if topic_suffix.ends_with("/_action/get_resultReply") => node
-                        .update_action_cli_result_rep_reader(
-                            &topic_suffix[..topic_suffix.len() - 24],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            rgid,
-                        ),
-                    "rr/" if topic_suffix.ends_with("Reply") => node.update_service_cli_rep_reader(
-                        &topic_suffix[..topic_suffix.len() - 5],
-                        dds_service_topic_to_ros(&entity.type_name),
-                        rgid,
-                    ),
-                    _ => {
-                        log::warn!(r#"ROS2 Node {ros_node_info} uses unexpected DDS topic "{}" - ignored"#, entity.topic_name);
-                        None
-                    }
-                };
+                let event: Option<ROS2DiscoveryEvent> = node.update_with_reader(entity);
                 if let Some(e) = event {
                     log::info!("ROS2 Node {ros_node_info} declares {e}");
                 }
@@ -280,77 +244,11 @@ impl DiscoveredEntities {
             }
         }
 
+        // For each declared Writer
         for wgid in &ros_node_info.writer_gid_seq {
             if let Some(entity) = writers.get(wgid) {
                 log::debug!("ROS2 Node {ros_node_info} declares Writer on {}", entity.topic_name);
-                let (topic_prefix, topic_suffix) = entity.topic_name.split_at(3);
-                let event = match topic_prefix {
-                    "rt/" if topic_suffix.ends_with("/_action/status") => node
-                        .update_action_srv_status_writer(
-                            &topic_suffix[..topic_suffix.len() - 15],
-                            wgid,
-                        ),
-                    "rt/" if topic_suffix.ends_with("/_action/feedback") => node
-                        .update_action_srv_feedback_writer(
-                            &topic_suffix[..topic_suffix.len() - 17],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            wgid,
-                        ),
-                    "rt/" => node.update_topic_pub(
-                        topic_suffix,
-                        dds_pubsub_topic_to_ros(&entity.type_name),
-                        wgid,
-                    ),
-                    "rq/" if topic_suffix.ends_with("/_action/send_goalRequest") => node
-                        .update_action_cli_send_req_writer(
-                            &topic_suffix[..topic_suffix.len() - 25],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            wgid,
-                        ),
-                    "rq/" if topic_suffix.ends_with("/_action/cancel_goalRequest") => node
-                        .update_action_cli_cancel_req_writer(
-                            &topic_suffix[..topic_suffix.len() - 27],
-                            wgid,
-                        ),
-                    "rq/" if topic_suffix.ends_with("/_action/get_resultRequest") => node
-                        .update_action_cli_result_req_writer(
-                            &topic_suffix[..topic_suffix.len() - 26],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            wgid,
-                        ),
-                    "rq/" if topic_suffix.ends_with("Request") => node
-                        .update_service_cli_req_writer(
-                            &topic_suffix[..topic_suffix.len() - 7],
-                            dds_service_topic_to_ros(&entity.type_name),
-                            wgid,
-                        ),
-                    "rr/" if topic_suffix.ends_with("/_action/send_goalReply") => node
-                        .update_action_srv_send_rep_writer(
-                            &topic_suffix[..topic_suffix.len() - 23],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            wgid,
-                        ),
-                    "rr/" if topic_suffix.ends_with("/_action/cancel_goalReply") => node
-                        .update_action_srv_cancel_rep_writer(
-                            &topic_suffix[..topic_suffix.len() - 25],
-                            wgid,
-                        ),
-                    "rr/" if topic_suffix.ends_with("/_action/get_resultReply") => node
-                        .update_action_srv_result_rep_writer(
-                            &topic_suffix[..topic_suffix.len() - 24],
-                            dds_action_topic_to_ros(&entity.type_name),
-                            wgid,
-                        ),
-                    "rr/" if topic_suffix.ends_with("Reply") => node.update_service_srv_rep_writer(
-                        &topic_suffix[..topic_suffix.len() - 5],
-                        dds_service_topic_to_ros(&entity.type_name),
-                        wgid,
-                    ),
-                    _ => {
-                        log::warn!(r#"ROS2 Node {ros_node_info} uses unexpected DDS topic "{}" - ignored"#, entity.topic_name);
-                        None
-                    }
-                };
+                let event: Option<ROS2DiscoveryEvent> = node.update_with_writer(entity);
                 if let Some(e) = event {
                     log::info!("ROS2 Node {ros_node_info} declares {e}");
                 }
@@ -508,36 +406,3 @@ fn remove_null_qos_values(
     }
 }
 
-// Convert DDS Topic for pub/sub to ROS2 topic
-fn dds_pubsub_topic_to_ros(dds_topic: &str) -> String {
-    let result = dds_topic.replace("::dds_::", "::").replace("::", "/");
-    if result.ends_with('_') {
-        result[..result.len()-1].into()
-    } else {
-        result
-    }
-}
-
-// Convert DDS Topic for ROS2 Service to ROS2 topic
-fn dds_service_topic_to_ros(dds_topic: &str) -> String {
-    dds_pubsub_topic_to_ros(
-        dds_topic
-            .strip_suffix("_Request_")
-            .or(dds_topic.strip_suffix("_Response_"))
-            .unwrap_or(dds_topic),
-    )
-}
-
-// Convert DDS Topic for ROS2 Action to ROS2 topic
-// Warning: can't work for "rt/.../_action/status" topic, since its type is generic
-fn dds_action_topic_to_ros(dds_topic: &str) -> String {
-    dds_pubsub_topic_to_ros(
-        dds_topic
-            .strip_suffix("_SendGoal_Request_")
-            .or(dds_topic.strip_suffix("_SendGoal_Response_"))
-            .or(dds_topic.strip_suffix("_GetResult_Request_"))
-            .or(dds_topic.strip_suffix("_GetResult_Response_"))
-            .or(dds_topic.strip_suffix("_FeedbackMessage_"))
-            .unwrap_or(dds_topic),
-    )
-}

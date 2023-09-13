@@ -86,7 +86,7 @@ const CYCLONEDDS_CONFIG_LOCALHOST_ONLY: &str = r#"<CycloneDDS><Domain><General><
 #[cfg(feature = "dds_shm")]
 const CYCLONEDDS_CONFIG_ENABLE_SHM: &str = r#"<CycloneDDS><Domain><SharedMemory><Enable>true</Enable></SharedMemory></Domain></CycloneDDS>,"#;
 
-const ROS_DISCOVERY_INFO_POLL_INTERVAL_MS: u64 = 50;
+const ROS_DISCOVERY_INFO_POLL_INTERVAL_MS: u64 = 100;
 
 zenoh_plugin_trait::declare_plugin!(ROS2Plugin);
 

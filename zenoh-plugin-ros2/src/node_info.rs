@@ -16,6 +16,7 @@ use serde::{Serialize, Serializer};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+use crate::dds_discovery::DdsEntity;
 use crate::discovered_entities::ROS2DiscoveryEvent;
 use crate::gid::Gid;
 
@@ -367,6 +368,22 @@ pub struct NodeInfo {
     pub undiscovered_writer: Vec<Gid>,
 }
 
+impl std::fmt::Display for NodeInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}/{}",
+            if &self.namespace == "/" {
+                ""
+            } else {
+                &self.namespace
+            },
+            self.name,
+        )?;
+        Ok(())
+    }
+}
+
 impl NodeInfo {
     pub fn create(namespace: String, name: String, participant: Gid) -> NodeInfo {
         NodeInfo {
@@ -381,6 +398,148 @@ impl NodeInfo {
             action_cli: HashMap::new(),
             undiscovered_reader: Vec::new(),
             undiscovered_writer: Vec::new(),
+        }
+    }
+
+    pub fn update_with_reader(&mut self, entity: &DdsEntity) -> Option<ROS2DiscoveryEvent> {
+        let (topic_prefix, topic_suffix) = entity.topic_name.split_at(3);
+        match topic_prefix {
+            "rt/" if topic_suffix.ends_with("/_action/status") => self
+                .update_action_cli_status_reader(
+                    &topic_suffix[..topic_suffix.len() - 15],
+                    &entity.key,
+                ),
+            "rt/" if topic_suffix.ends_with("/_action/feedback") => self
+                .update_action_cli_feedback_reader(
+                    &topic_suffix[..topic_suffix.len() - 17],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rt/" => self.update_topic_sub(
+                topic_suffix,
+                dds_pubsub_topic_to_ros(&entity.type_name),
+                &entity.key,
+            ),
+            "rq/" if topic_suffix.ends_with("/_action/send_goalRequest") => self
+                .update_action_srv_send_req_reader(
+                    &topic_suffix[..topic_suffix.len() - 25],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rq/" if topic_suffix.ends_with("/_action/cancel_goalRequest") => self
+                .update_action_srv_cancel_req_reader(
+                    &topic_suffix[..topic_suffix.len() - 27],
+                    &entity.key,
+                ),
+            "rq/" if topic_suffix.ends_with("/_action/get_resultRequest") => self
+                .update_action_srv_result_req_reader(
+                    &topic_suffix[..topic_suffix.len() - 26],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rq/" if topic_suffix.ends_with("Request") => self
+                .update_service_srv_req_reader(
+                    &topic_suffix[..topic_suffix.len() - 7],
+                    dds_service_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rr/" if topic_suffix.ends_with("/_action/send_goalReply") => self
+                .update_action_cli_send_rep_reader(
+                    &topic_suffix[..topic_suffix.len() - 23],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rr/" if topic_suffix.ends_with("/_action/cancel_goalReply") => self
+                .update_action_cli_cancel_rep_reader(
+                    &topic_suffix[..topic_suffix.len() - 25],
+                    &entity.key,
+                ),
+            "rr/" if topic_suffix.ends_with("/_action/get_resultReply") => self
+                .update_action_cli_result_rep_reader(
+                    &topic_suffix[..topic_suffix.len() - 24],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rr/" if topic_suffix.ends_with("Reply") => self.update_service_cli_rep_reader(
+                &topic_suffix[..topic_suffix.len() - 5],
+                dds_service_topic_to_ros(&entity.type_name),
+                &entity.key,
+            ),
+            _ => {
+                log::warn!(r#"ROS2 Node {self} uses unexpected DDS topic "{}" - ignored"#, entity.topic_name);
+                None
+            }
+        }
+    }
+
+    pub fn update_with_writer(&mut self, entity: &DdsEntity) -> Option<ROS2DiscoveryEvent> {
+        let (topic_prefix, topic_suffix) = entity.topic_name.split_at(3);
+        match topic_prefix {
+            "rt/" if topic_suffix.ends_with("/_action/status") => self
+                .update_action_srv_status_writer(
+                    &topic_suffix[..topic_suffix.len() - 15],
+                    &entity.key,
+                ),
+            "rt/" if topic_suffix.ends_with("/_action/feedback") => self
+                .update_action_srv_feedback_writer(
+                    &topic_suffix[..topic_suffix.len() - 17],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rt/" => self.update_topic_pub(
+                topic_suffix,
+                dds_pubsub_topic_to_ros(&entity.type_name),
+                &entity.key,
+            ),
+            "rq/" if topic_suffix.ends_with("/_action/send_goalRequest") => self
+                .update_action_cli_send_req_writer(
+                    &topic_suffix[..topic_suffix.len() - 25],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rq/" if topic_suffix.ends_with("/_action/cancel_goalRequest") => self
+                .update_action_cli_cancel_req_writer(
+                    &topic_suffix[..topic_suffix.len() - 27],
+                    &entity.key,
+                ),
+            "rq/" if topic_suffix.ends_with("/_action/get_resultRequest") => self
+                .update_action_cli_result_req_writer(
+                    &topic_suffix[..topic_suffix.len() - 26],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rq/" if topic_suffix.ends_with("Request") => self
+                .update_service_cli_req_writer(
+                    &topic_suffix[..topic_suffix.len() - 7],
+                    dds_service_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rr/" if topic_suffix.ends_with("/_action/send_goalReply") => self
+                .update_action_srv_send_rep_writer(
+                    &topic_suffix[..topic_suffix.len() - 23],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rr/" if topic_suffix.ends_with("/_action/cancel_goalReply") => self
+                .update_action_srv_cancel_rep_writer(
+                    &topic_suffix[..topic_suffix.len() - 25],
+                    &entity.key,
+                ),
+            "rr/" if topic_suffix.ends_with("/_action/get_resultReply") => self
+                .update_action_srv_result_rep_writer(
+                    &topic_suffix[..topic_suffix.len() - 24],
+                    dds_action_topic_to_ros(&entity.type_name),
+                    &entity.key,
+                ),
+            "rr/" if topic_suffix.ends_with("Reply") => self.update_service_srv_rep_writer(
+                &topic_suffix[..topic_suffix.len() - 5],
+                dds_service_topic_to_ros(&entity.type_name),
+                &entity.key,
+            ),
+            _ => {
+                log::warn!(r#"ROS2 Node {self} uses unexpected DDS topic "{}" - ignored"#, entity.topic_name);
+                None
+            }
         }
     }
 
@@ -1309,4 +1468,37 @@ where
         seq.serialize_element(x)?;
     }
     seq.end()
+}
+// Convert DDS Topic for pub/sub to ROS2 topic
+fn dds_pubsub_topic_to_ros(dds_topic: &str) -> String {
+    let result = dds_topic.replace("::dds_::", "::").replace("::", "/");
+    if result.ends_with('_') {
+        result[..result.len()-1].into()
+    } else {
+        result
+    }
+}
+
+// Convert DDS Topic for ROS2 Service to ROS2 topic
+fn dds_service_topic_to_ros(dds_topic: &str) -> String {
+    dds_pubsub_topic_to_ros(
+        dds_topic
+            .strip_suffix("_Request_")
+            .or(dds_topic.strip_suffix("_Response_"))
+            .unwrap_or(dds_topic),
+    )
+}
+
+// Convert DDS Topic for ROS2 Action to ROS2 topic
+// Warning: can't work for "rt/.../_action/status" topic, since its type is generic
+fn dds_action_topic_to_ros(dds_topic: &str) -> String {
+    dds_pubsub_topic_to_ros(
+        dds_topic
+            .strip_suffix("_SendGoal_Request_")
+            .or(dds_topic.strip_suffix("_SendGoal_Response_"))
+            .or(dds_topic.strip_suffix("_GetResult_Request_"))
+            .or(dds_topic.strip_suffix("_GetResult_Response_"))
+            .or(dds_topic.strip_suffix("_FeedbackMessage_"))
+            .unwrap_or(dds_topic),
+    )
 }
