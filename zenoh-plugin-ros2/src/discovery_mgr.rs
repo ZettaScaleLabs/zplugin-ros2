@@ -76,19 +76,34 @@ impl DiscoveryMgr {
                                 zwrite!(discovered_entities).add_participant(entity);
                             },
                             DDSDiscoveryEvent::UndiscoveredParticipant {key} => {
-                                zwrite!(discovered_entities).remove_participant(&key);
+                                let evts = zwrite!(discovered_entities).remove_participant(&key);
+                                for e in evts {
+                                    log::error!("{e:?}");
+                                }
                             },
                             DDSDiscoveryEvent::DiscoveredPublication{entity} => {
-                                zwrite!(discovered_entities).add_writer(entity);
+                                let e = zwrite!(discovered_entities).add_writer(entity);
+                                if let Some(e) = e {
+                                    log::error!("{e:?}");
+                                }
                             },
                             DDSDiscoveryEvent::UndiscoveredPublication{key} => {
-                                zwrite!(discovered_entities).remove_writer(&key);
+                                let e = zwrite!(discovered_entities).remove_writer(&key);
+                                if let Some(e) = e {
+                                    log::error!("{e:?}");
+                                }
                             },
                             DDSDiscoveryEvent::DiscoveredSubscription {entity} => {
-                                zwrite!(discovered_entities).add_reader(entity);
+                                let e = zwrite!(discovered_entities).add_reader(entity);
+                                if let Some(e) = e {
+                                    log::error!("{e:?}");
+                                }
                             },
                             DDSDiscoveryEvent::UndiscoveredSubscription {key} => {
-                                zwrite!(discovered_entities).remove_reader(&key);
+                                let e = zwrite!(discovered_entities).remove_reader(&key);
+                                if let Some(e) = e {
+                                    log::error!("{e:?}");
+                                }
                             },
                         }
                     }
@@ -97,8 +112,11 @@ impl DiscoveryMgr {
                         let infos = ros_disco_mgr.read();
                         for part_info in infos {
                             log::debug!("Received ros_discovery_info from {}", part_info);
-                            zwrite!(discovered_entities).update_participant_info(part_info);
-                        }
+                            let evts = zwrite!(discovered_entities).update_participant_info(part_info);
+                            for e in evts {
+                                log::error!("{e:?}");
+                            }
+                    }
                     }
                 )
             }

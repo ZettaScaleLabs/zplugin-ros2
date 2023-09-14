@@ -437,12 +437,11 @@ impl NodeInfo {
                     dds_action_topic_to_ros(&entity.type_name),
                     &entity.key,
                 ),
-            "rq/" if topic_suffix.ends_with("Request") => self
-                .update_service_srv_req_reader(
-                    &topic_suffix[..topic_suffix.len() - 7],
-                    dds_service_topic_to_ros(&entity.type_name),
-                    &entity.key,
-                ),
+            "rq/" if topic_suffix.ends_with("Request") => self.update_service_srv_req_reader(
+                &topic_suffix[..topic_suffix.len() - 7],
+                dds_service_topic_to_ros(&entity.type_name),
+                &entity.key,
+            ),
             "rr/" if topic_suffix.ends_with("/_action/send_goalReply") => self
                 .update_action_cli_send_rep_reader(
                     &topic_suffix[..topic_suffix.len() - 23],
@@ -466,7 +465,10 @@ impl NodeInfo {
                 &entity.key,
             ),
             _ => {
-                log::warn!(r#"ROS2 Node {self} uses unexpected DDS topic "{}" - ignored"#, entity.topic_name);
+                log::warn!(
+                    r#"ROS2 Node {self} uses unexpected DDS topic "{}" - ignored"#,
+                    entity.topic_name
+                );
                 None
             }
         }
@@ -508,12 +510,11 @@ impl NodeInfo {
                     dds_action_topic_to_ros(&entity.type_name),
                     &entity.key,
                 ),
-            "rq/" if topic_suffix.ends_with("Request") => self
-                .update_service_cli_req_writer(
-                    &topic_suffix[..topic_suffix.len() - 7],
-                    dds_service_topic_to_ros(&entity.type_name),
-                    &entity.key,
-                ),
+            "rq/" if topic_suffix.ends_with("Request") => self.update_service_cli_req_writer(
+                &topic_suffix[..topic_suffix.len() - 7],
+                dds_service_topic_to_ros(&entity.type_name),
+                &entity.key,
+            ),
             "rr/" if topic_suffix.ends_with("/_action/send_goalReply") => self
                 .update_action_srv_send_rep_writer(
                     &topic_suffix[..topic_suffix.len() - 23],
@@ -537,14 +538,17 @@ impl NodeInfo {
                 &entity.key,
             ),
             _ => {
-                log::warn!(r#"ROS2 Node {self} uses unexpected DDS topic "{}" - ignored"#, entity.topic_name);
+                log::warn!(
+                    r#"ROS2 Node {self} uses unexpected DDS topic "{}" - ignored"#,
+                    entity.topic_name
+                );
                 None
             }
         }
     }
 
     // Update TopicPub, returing a ROS2DiscoveryEvent::DiscoveredTopicSub if new or changed
-    pub fn update_topic_pub(
+    fn update_topic_pub(
         &mut self,
         name: &str,
         typ: String,
@@ -584,7 +588,7 @@ impl NodeInfo {
     }
 
     // Update TopicSub, returing a ROS2DiscoveryEvent::DiscoveredTopicSub if new or changed
-    pub fn update_topic_sub(
+    fn update_topic_sub(
         &mut self,
         name: &str,
         typ: String,
@@ -624,7 +628,7 @@ impl NodeInfo {
     }
 
     // Update ServiceSrv, returing a ROS2DiscoveryEvent::DiscoveredServiceSrv if new and complete or changed
-    pub fn update_service_srv_req_reader(
+    fn update_service_srv_req_reader(
         &mut self,
         name: &str,
         typ: String,
@@ -667,7 +671,7 @@ impl NodeInfo {
     }
 
     // Update ServiceSrv, returing a ROS2DiscoveryEvent::DiscoveredServiceSrv if new and complete or changed
-    pub fn update_service_srv_rep_writer(
+    fn update_service_srv_rep_writer(
         &mut self,
         name: &str,
         typ: String,
@@ -710,7 +714,7 @@ impl NodeInfo {
     }
 
     // Update ServiceCli, returing a ROS2DiscoveryEvent::DiscoveredServiceCli if new and complete or changed
-    pub fn update_service_cli_rep_reader(
+    fn update_service_cli_rep_reader(
         &mut self,
         name: &str,
         typ: String,
@@ -753,7 +757,7 @@ impl NodeInfo {
     }
 
     // Update ServiceCli, returing a ROS2DiscoveryEvent::DiscoveredServiceCli if new and complete or changed
-    pub fn update_service_cli_req_writer(
+    fn update_service_cli_req_writer(
         &mut self,
         name: &str,
         typ: String,
@@ -796,7 +800,7 @@ impl NodeInfo {
     }
 
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
-    pub fn update_action_srv_send_req_reader(
+    fn update_action_srv_send_req_reader(
         &mut self,
         name: &str,
         typ: String,
@@ -841,7 +845,7 @@ impl NodeInfo {
     }
 
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
-    pub fn update_action_srv_send_rep_writer(
+    fn update_action_srv_send_rep_writer(
         &mut self,
         name: &str,
         typ: String,
@@ -888,7 +892,7 @@ impl NodeInfo {
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
     // NOTE: type of CancelGoal topic does not reflect the action type.
     //       Thus we don't update it or we create ActionCli with as an empty String as type.
-    pub fn update_action_srv_cancel_req_reader(
+    fn update_action_srv_cancel_req_reader(
         &mut self,
         name: &str,
         reader: &Gid,
@@ -923,7 +927,7 @@ impl NodeInfo {
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
     // NOTE: type of CancelGoal topic does not reflect the action type.
     //       Thus we don't update it or we create ActionCli with as an empty String as type.
-    pub fn update_action_srv_cancel_rep_writer(
+    fn update_action_srv_cancel_rep_writer(
         &mut self,
         name: &str,
         writer: &Gid,
@@ -956,7 +960,7 @@ impl NodeInfo {
     }
 
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
-    pub fn update_action_srv_result_req_reader(
+    fn update_action_srv_result_req_reader(
         &mut self,
         name: &str,
         typ: String,
@@ -1001,7 +1005,7 @@ impl NodeInfo {
     }
 
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
-    pub fn update_action_srv_result_rep_writer(
+    fn update_action_srv_result_rep_writer(
         &mut self,
         name: &str,
         typ: String,
@@ -1048,7 +1052,7 @@ impl NodeInfo {
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
     // NOTE: type of Status topic does not reflect the action type.
     //       Thus we don't update it or we create ActionCli with as an empty String as type.
-    pub fn update_action_srv_status_writer(
+    fn update_action_srv_status_writer(
         &mut self,
         name: &str,
         writer: &Gid,
@@ -1081,7 +1085,7 @@ impl NodeInfo {
     }
 
     // Update ActionSrv, returing a ROS2DiscoveryEvent::DiscoveredActionSrv if new and complete or changed
-    pub fn update_action_srv_feedback_writer(
+    fn update_action_srv_feedback_writer(
         &mut self,
         name: &str,
         typ: String,
@@ -1126,7 +1130,7 @@ impl NodeInfo {
     }
 
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
-    pub fn update_action_cli_send_rep_reader(
+    fn update_action_cli_send_rep_reader(
         &mut self,
         name: &str,
         typ: String,
@@ -1171,7 +1175,7 @@ impl NodeInfo {
     }
 
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
-    pub fn update_action_cli_send_req_writer(
+    fn update_action_cli_send_req_writer(
         &mut self,
         name: &str,
         typ: String,
@@ -1218,7 +1222,7 @@ impl NodeInfo {
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
     // NOTE: type of CancelGoal topic does not reflect the action type.
     //       Thus we don't update it or we create ActionCli with as an empty String as type.
-    pub fn update_action_cli_cancel_rep_reader(
+    fn update_action_cli_cancel_rep_reader(
         &mut self,
         name: &str,
         reader: &Gid,
@@ -1253,7 +1257,7 @@ impl NodeInfo {
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
     // NOTE: type of CancelGoal topic does not reflect the action type.
     //       Thus we don't update it or we create ActionCli with as an empty String as type.
-    pub fn update_action_cli_cancel_req_writer(
+    fn update_action_cli_cancel_req_writer(
         &mut self,
         name: &str,
         writer: &Gid,
@@ -1286,7 +1290,7 @@ impl NodeInfo {
     }
 
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
-    pub fn update_action_cli_result_rep_reader(
+    fn update_action_cli_result_rep_reader(
         &mut self,
         name: &str,
         typ: String,
@@ -1331,7 +1335,7 @@ impl NodeInfo {
     }
 
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
-    pub fn update_action_cli_result_req_writer(
+    fn update_action_cli_result_req_writer(
         &mut self,
         name: &str,
         typ: String,
@@ -1378,7 +1382,7 @@ impl NodeInfo {
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
     // NOTE: type of Status topic does not reflect the action type.
     //       Thus we don't update it or we create ActionCli with as an empty String as type.
-    pub fn update_action_cli_status_reader(
+    fn update_action_cli_status_reader(
         &mut self,
         name: &str,
         reader: &Gid,
@@ -1411,7 +1415,7 @@ impl NodeInfo {
     }
 
     // Update ActionCli, returing a ROS2DiscoveryEvent::DiscoveredActionCli if new and complete or changed
-    pub fn update_action_cli_feedback_reader(
+    fn update_action_cli_feedback_reader(
         &mut self,
         name: &str,
         typ: String,
@@ -1454,6 +1458,137 @@ impl NodeInfo {
             }
         }
     }
+
+    //
+    pub fn remove_all_entities(&mut self) -> Vec<ROS2DiscoveryEvent> {
+        use ROS2DiscoveryEvent::*;
+        let mut events = Vec::new();
+
+        for (_, v) in self.topic_pub.drain() {
+            events.push(UndiscoveredTopicPub(v))
+        }
+        for (_, v) in self.topic_sub.drain() {
+            events.push(UndiscoveredTopicSub(v))
+        }
+        for (_, v) in self.service_srv.drain() {
+            events.push(UndiscoveredServiceSrv(v))
+        }
+        for (_, v) in self.service_cli.drain() {
+            events.push(UndiscoveredServiceCli(v))
+        }
+        for (_, v) in self.action_srv.drain() {
+            events.push(UndiscoveredActionSrv(v))
+        }
+        for (_, v) in self.action_cli.drain() {
+            events.push(UndiscoveredActionCli(v))
+        }
+        self.undiscovered_reader.resize(0, Gid::NOT_DISCOVERED);
+        self.undiscovered_writer.resize(0, Gid::NOT_DISCOVERED);
+
+        events
+    }
+
+    // Remove a DDS Reader possibly used by this node, and returns an UndiscoveredX event if
+    // this Reader was used by some Subscription, Service or Action
+    pub fn remove_reader(&mut self, reader: &Gid) -> Option<ROS2DiscoveryEvent> {
+        use ROS2DiscoveryEvent::*;
+        if let Some((name, _)) = self.topic_sub.iter().find(|(_, v)| v.reader == *reader) {
+            return Some(UndiscoveredTopicSub(
+                self.topic_sub.remove(&name.clone()).unwrap(),
+            ));
+        }
+        if let Some((name, _)) = self
+            .service_srv
+            .iter()
+            .find(|(_, v)| v.entities.req_reader == *reader)
+        {
+            return Some(UndiscoveredServiceSrv(
+                self.service_srv.remove(&name.clone()).unwrap(),
+            ));
+        }
+        if let Some((name, _)) = self
+            .service_cli
+            .iter()
+            .find(|(_, v)| v.entities.rep_reader == *reader)
+        {
+            return Some(UndiscoveredServiceCli(
+                self.service_cli.remove(&name.clone()).unwrap(),
+            ));
+        }
+        if let Some((name, _)) = self.action_srv.iter().find(|(_, v)| {
+            v.entities.send_goal.req_reader == *reader
+                || v.entities.cancel_goal.req_reader == *reader
+                || v.entities.get_result.req_reader == *reader
+        }) {
+            return Some(UndiscoveredActionSrv(
+                self.action_srv.remove(&name.clone()).unwrap(),
+            ));
+        }
+        if let Some((name, _)) = self.action_cli.iter().find(|(_, v)| {
+            v.entities.send_goal.rep_reader == *reader
+                || v.entities.cancel_goal.rep_reader == *reader
+                || v.entities.get_result.rep_reader == *reader
+                || v.entities.status_reader == *reader
+                || v.entities.feedback_reader == *reader
+        }) {
+            return Some(UndiscoveredActionCli(
+                self.action_cli.remove(&name.clone()).unwrap(),
+            ));
+        }
+        self.undiscovered_reader.retain(|gid| gid != reader);
+        None
+    }
+
+    // Remove a DDS Writer possibly used by this node, and returns an UndiscoveredX event if
+    // this Writer was used by some Subscription, Service or Action
+    pub fn remove_writer(&mut self, writer: &Gid) -> Option<ROS2DiscoveryEvent> {
+        use ROS2DiscoveryEvent::*;
+        if let Some((name, _)) = self.topic_pub.iter().find(|(_, v)| v.writer == *writer) {
+            return Some(UndiscoveredTopicPub(
+                self.topic_pub.remove(&name.clone()).unwrap(),
+            ));
+        }
+        if let Some((name, _)) = self
+            .service_srv
+            .iter()
+            .find(|(_, v)| v.entities.rep_writer == *writer)
+        {
+            return Some(UndiscoveredServiceSrv(
+                self.service_srv.remove(&name.clone()).unwrap(),
+            ));
+        }
+        if let Some((name, _)) = self
+            .service_cli
+            .iter()
+            .find(|(_, v)| v.entities.req_writer == *writer)
+        {
+            return Some(UndiscoveredServiceCli(
+                self.service_cli.remove(&name.clone()).unwrap(),
+            ));
+        }
+        if let Some((name, _)) = self.action_srv.iter().find(|(_, v)| {
+            v.entities.send_goal.rep_writer == *writer
+                || v.entities.cancel_goal.rep_writer == *writer
+                || v.entities.get_result.rep_writer == *writer
+                || v.entities.status_writer == *writer
+                || v.entities.feedback_writer == *writer
+        }) {
+            return Some(UndiscoveredActionSrv(
+                self.action_srv.remove(&name.clone()).unwrap(),
+            ));
+        }
+        if let Some((name, _)) = self.action_cli.iter().find(|(_, v)| {
+            v.entities.send_goal.req_writer == *writer
+                || v.entities.cancel_goal.req_writer == *writer
+                || v.entities.get_result.req_writer == *writer
+        }) {
+            return Some(UndiscoveredActionCli(
+                self.action_cli.remove(&name.clone()).unwrap(),
+            ));
+        }
+        self.undiscovered_writer.retain(|gid| gid != writer);
+        None
+    }
 }
 
 fn serialize_hashmap_values<S, T: Serialize>(
@@ -1473,7 +1608,7 @@ where
 fn dds_pubsub_topic_to_ros(dds_topic: &str) -> String {
     let result = dds_topic.replace("::dds_::", "::").replace("::", "/");
     if result.ends_with('_') {
-        result[..result.len()-1].into()
+        result[..result.len() - 1].into()
     } else {
         result
     }
