@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::env;
 use std::mem::ManuallyDrop;
+use std::ops::RangeBounds;
 use std::sync::Arc;
 use zenoh::liveliness::LivelinessToken;
 use zenoh::plugins::{Plugin, RunningPluginTrait, Runtime, ZenohPlugin};
@@ -46,15 +47,20 @@ mod gid;
 mod node_info;
 mod qos_helpers;
 mod ros_discovery;
+mod route_topic_dds_zenoh;
+mod route_topic_zenoh_dds;
+mod routes_mgr;
 use config::Config;
 use dds_discovery::*;
 
 use crate::discovered_entities::ROS2DiscoveryEvent;
 use crate::discovery_mgr::DiscoveryMgr;
 use crate::qos_helpers::*;
+use crate::routes_mgr::RoutesMgr;
 
 pub const GIT_VERSION: &str = git_version!(prefix = "v", cargo_prefix = "v");
 
+#[macro_export]
 macro_rules! ke_for_sure {
     ($val:expr) => {
         unsafe { keyexpr::from_str_unchecked($val) }
@@ -69,6 +75,8 @@ lazy_static::lazy_static!(
 
     static ref KE_ANY_1_SEGMENT: &'static keyexpr = ke_for_sure!("*");
     static ref KE_ANY_N_SEGMENT: &'static keyexpr = ke_for_sure!("**");
+
+    static ref KE_PREFIX_PUB_CACHE: &'static keyexpr = ke_for_sure!("@ros2_pub_cache");
 );
 
 zenoh::kedefine!(
@@ -144,7 +152,7 @@ pub async fn run(runtime: Runtime, config: Config) {
     // But cannot be done twice in case of static link.
     let _ = env_logger::try_init();
     log::debug!("ROS2 plugin {}", LONG_VERSION.as_str());
-    log::debug!("ROS2 plugin {:?}", config);
+    log::info!("ROS2 plugin {:?}", config);
 
     // open zenoh-net Session
     let zsession = match zenoh::init(runtime).res_async().await {
@@ -274,11 +282,14 @@ impl<'a> ROS2PluginRuntime<'a> {
             .await
             .expect("Failed to create Liveliness Subscriber");
 
-        // run discovery
+        // create RoutesManager
+        let mut routes_mgr = RoutesMgr::create(self.dp);
+        DiscoveryMgr::create(self.dp);
+
+        // Create and start DiscoveryManager
         let (tx, discovery_rcv): (Sender<ROS2DiscoveryEvent>, Receiver<ROS2DiscoveryEvent>) =
             unbounded();
-        let mut discovery_mgr =
-            DiscoveryMgr::create(self.dp).expect("Failed to create  Discovery Manager");
+        let mut discovery_mgr = DiscoveryMgr::create(self.dp);
         discovery_mgr.run(tx).await;
 
         // declare admin space queryable
@@ -306,7 +317,18 @@ impl<'a> ROS2PluginRuntime<'a> {
         loop {
             select!(
                 evt = discovery_rcv.recv_async() => {
-                    log::info!("EVT: {:?}", evt);
+                    use ROS2DiscoveryEvent::*;
+                    match evt {
+                        Ok(evt) => {
+                            if self.is_allowed(evt.interface_name()) {
+                                log::info!("{evt} => ALLOWED");
+
+                            } else {
+                                log::info!("{evt} => Denied per config");
+                            }
+                        }
+                        Err(e) => log::error!("Internal Error: received from DiscoveryMgr: {e}")
+                    }
                 },
 
                 group_event = group_subscriber.recv_async() => {
@@ -341,6 +363,15 @@ impl<'a> ROS2PluginRuntime<'a> {
                     }
                 }
             )
+        }
+    }
+
+    fn is_allowed(&self, iface: &str) -> bool {
+        match (&self.config.allow, &self.config.deny) {
+            (Some(allow), None) => allow.is_match(iface),
+            (None, Some(deny)) => !deny.is_match(iface),
+            (Some(allow), Some(deny)) => allow.is_match(iface) && !deny.is_match(iface),
+            (None, None) => true,
         }
     }
 

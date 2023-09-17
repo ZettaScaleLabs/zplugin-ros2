@@ -20,7 +20,7 @@ use crate::dds_discovery::DdsEntity;
 use crate::discovered_entities::ROS2DiscoveryEvent;
 use crate::gid::Gid;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct TopicPub {
     pub name: String,
     #[serde(rename = "type")]
@@ -37,19 +37,12 @@ impl TopicPub {
 
 impl std::fmt::Display for TopicPub {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ,)?;
+        write!(f, "Publisher {}: {}", self.name, self.typ)?;
         Ok(())
     }
 }
 
-impl std::fmt::Debug for TopicPub {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TopicPub ({} - W:{:?})", self, self.writer,)?;
-        Ok(())
-    }
-}
-
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct TopicSub {
     pub name: String,
     #[serde(rename = "type")]
@@ -66,14 +59,7 @@ impl TopicSub {
 
 impl std::fmt::Display for TopicSub {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ,)?;
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for TopicSub {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TopicSub({} - R:{:?})", self, self.reader,)?;
+        write!(f, "Subscriber {}: {}", self.name, self.typ)?;
         Ok(())
     }
 }
@@ -93,12 +79,16 @@ impl ServiceSrvEntities {
 
 impl std::fmt::Debug for ServiceSrvEntities {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "reqR:{:?}, repW:{:?}", self.req_reader, self.rep_writer,)?;
+        write!(
+            f,
+            "{{reqR:{:?}, repW:{:?}}}",
+            self.req_reader, self.rep_writer
+        )?;
         Ok(())
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ServiceSrv {
     pub name: String,
     #[serde(rename = "type")]
@@ -124,14 +114,7 @@ impl ServiceSrv {
 
 impl std::fmt::Display for ServiceSrv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ,)?;
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for ServiceSrv {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ServiceSrv({} - {:?})", self, self.entities,)?;
+        write!(f, "Service Server {}: {}", self.name, self.typ)?;
         Ok(())
     }
 }
@@ -151,12 +134,16 @@ impl ServiceCliEntities {
 
 impl std::fmt::Debug for ServiceCliEntities {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "reqW:{}, repR:{}", self.req_writer, self.rep_reader,)?;
+        write!(
+            f,
+            "{{reqW:{:?}, repR:{:?}}}",
+            self.req_writer, self.rep_reader
+        )?;
         Ok(())
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ServiceCli {
     pub name: String,
     #[serde(rename = "type")]
@@ -182,14 +169,7 @@ impl ServiceCli {
 
 impl std::fmt::Display for ServiceCli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ,)?;
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for ServiceCli {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ServiceCli({} - {:?})", self, self.entities,)?;
+        write!(f, "Service Client {}: {}", self.name, self.typ)?;
         Ok(())
     }
 }
@@ -218,7 +198,7 @@ impl std::fmt::Debug for ActionSrvEntities {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "send_goal({:?}),cancel_goal({:?}), get_result({:?}), statusW:{:?}, feedbackW:{:?}",
+            "{{send_goal{:?}, cancel_goal{:?}, get_result{:?}, statusW:{:?}, feedbackW:{:?}}}",
             self.send_goal,
             self.cancel_goal,
             self.get_result,
@@ -229,7 +209,7 @@ impl std::fmt::Debug for ActionSrvEntities {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ActionSrv {
     pub name: String,
     #[serde(rename = "type")]
@@ -255,14 +235,7 @@ impl ActionSrv {
 
 impl std::fmt::Display for ActionSrv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ,)?;
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for ActionSrv {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ActionSrv({} - {:?})", self, self.entities,)?;
+        write!(f, "Action Server {}: {}", self.name, self.typ)?;
         Ok(())
     }
 }
@@ -291,7 +264,7 @@ impl std::fmt::Debug for ActionCliEntities {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "send_goal({:?}),cancel_goal({:?}, get_result({:?}, statusR:{:?}, feedbackR:{:?}",
+            "{{send_goal{:?}, cancel_goal{:?}, get_result{:?}, statusR:{:?}, feedbackR:{:?}}}",
             self.send_goal,
             self.cancel_goal,
             self.get_result,
@@ -302,7 +275,7 @@ impl std::fmt::Debug for ActionCliEntities {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ActionCli {
     pub name: String,
     #[serde(rename = "type")]
@@ -328,22 +301,16 @@ impl ActionCli {
 
 impl std::fmt::Display for ActionCli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ,)?;
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for ActionCli {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ActionCli({} - {:?})", self, self.entities,)?;
+        write!(f, "Action Client {}: {}", self.name, self.typ)?;
         Ok(())
     }
 }
 
 #[derive(Serialize)]
 pub struct NodeInfo {
-    pub namespace: String,
-    pub name: String,
+    pub fullname: String,
+    #[serde(skip)]
+    node_name_idx: usize,
     #[serde(skip)]
     pub participant: Gid,
     #[serde(rename = "publishers", serialize_with = "serialize_hashmap_values")]
@@ -364,7 +331,9 @@ pub struct NodeInfo {
     pub action_srv: HashMap<String, ActionSrv>,
     #[serde(rename = "action_clients", serialize_with = "serialize_hashmap_values")]
     pub action_cli: HashMap<String, ActionCli>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub undiscovered_reader: Vec<Gid>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub undiscovered_writer: Vec<Gid>,
 }
 
@@ -372,23 +341,26 @@ impl std::fmt::Display for NodeInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}/{}",
-            if &self.namespace == "/" {
-                ""
-            } else {
-                &self.namespace
-            },
-            self.name,
-        )?;
-        Ok(())
+            "{}  (namespace={}, name={})",
+            self.fullname,
+            self.namespace(),
+            self.name()
+        )
     }
 }
 
 impl NodeInfo {
-    pub fn create(namespace: String, name: String, participant: Gid) -> NodeInfo {
+    pub fn create(namespace: String, node_name: String, participant: Gid) -> NodeInfo {
+        // if
+        let (fullname, node_name_idx) = if namespace == "/" {
+            (format!("/{node_name}"), 1)
+        } else {
+            (format!("{namespace}/{node_name}"), namespace.len() + 1)
+        };
+
         NodeInfo {
-            namespace,
-            name,
+            fullname,
+            node_name_idx,
             participant,
             topic_pub: HashMap::new(),
             topic_sub: HashMap::new(),
@@ -401,8 +373,23 @@ impl NodeInfo {
         }
     }
 
+    pub fn namespace(&self) -> &str {
+        if self.node_name_idx == 1 {
+            // namespace is only "/"
+            "/"
+        } else {
+            // don't include last "/" separator in namespace
+            &self.fullname[..self.node_name_idx - 1]
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.fullname[self.node_name_idx..]
+    }
+
     pub fn update_with_reader(&mut self, entity: &DdsEntity) -> Option<ROS2DiscoveryEvent> {
-        let (topic_prefix, topic_suffix) = entity.topic_name.split_at(3);
+        let topic_prefix = &entity.topic_name[..3];
+        let topic_suffix = &entity.topic_name[2..];
         match topic_prefix {
             "rt/" if topic_suffix.ends_with("/_action/status") => self
                 .update_action_cli_status_reader(
@@ -475,7 +462,8 @@ impl NodeInfo {
     }
 
     pub fn update_with_writer(&mut self, entity: &DdsEntity) -> Option<ROS2DiscoveryEvent> {
-        let (topic_prefix, topic_suffix) = entity.topic_name.split_at(3);
+        let topic_prefix = &entity.topic_name[..3];
+        let topic_suffix = &entity.topic_name[2..];
         match topic_prefix {
             "rt/" if topic_suffix.ends_with("/_action/status") => self
                 .update_action_srv_status_writer(
@@ -562,7 +550,7 @@ impl NodeInfo {
                     typ: typ,
                     writer: *writer,
                 });
-                Some(DiscoveredTopicPub(tpub.clone()))
+                Some(DiscoveredTopicPub(self.fullname.clone(), tpub.clone()))
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -572,7 +560,7 @@ impl NodeInfo {
                         r#"ROS declaration of Publisher "{v}" changed it's type to "{typ}""#
                     );
                     v.typ = typ;
-                    result = Some(DiscoveredTopicPub(v.clone()));
+                    result = Some(DiscoveredTopicPub(self.fullname.clone(), v.clone()));
                 }
                 if v.writer != *writer {
                     log::debug!(
@@ -580,7 +568,7 @@ impl NodeInfo {
                         v.writer
                     );
                     v.writer = *writer;
-                    result = Some(DiscoveredTopicPub(v.clone()));
+                    result = Some(DiscoveredTopicPub(self.fullname.clone(), v.clone()));
                 }
                 result
             }
@@ -602,7 +590,7 @@ impl NodeInfo {
                     typ: typ,
                     reader: *reader,
                 });
-                Some(DiscoveredTopicSub(tsub.clone()))
+                Some(DiscoveredTopicSub(self.fullname.clone(), tsub.clone()))
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -612,7 +600,7 @@ impl NodeInfo {
                         r#"ROS declaration of Subscriber "{v}" changed it's type to "{typ}""#
                     );
                     v.typ = typ;
-                    result = Some(DiscoveredTopicSub(v.clone()));
+                    result = Some(DiscoveredTopicSub(self.fullname.clone(), v.clone()));
                 }
                 if v.reader != *reader {
                     log::debug!(
@@ -620,7 +608,7 @@ impl NodeInfo {
                         v.reader
                     );
                     v.reader = *reader;
-                    result = Some(DiscoveredTopicSub(v.clone()));
+                    result = Some(DiscoveredTopicSub(self.fullname.clone(), v.clone()));
                 }
                 result
             }
@@ -650,7 +638,7 @@ impl NodeInfo {
                     );
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredServiceSrv(v.clone()))
+                        result = Some(DiscoveredServiceSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.req_reader != *reader {
@@ -662,7 +650,7 @@ impl NodeInfo {
                     }
                     v.entities.req_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredServiceSrv(v.clone()))
+                        result = Some(DiscoveredServiceSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -693,7 +681,7 @@ impl NodeInfo {
                     );
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredServiceSrv(v.clone()))
+                        result = Some(DiscoveredServiceSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.rep_writer != *writer {
@@ -705,7 +693,7 @@ impl NodeInfo {
                     }
                     v.entities.rep_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredServiceSrv(v.clone()))
+                        result = Some(DiscoveredServiceSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -736,7 +724,7 @@ impl NodeInfo {
                     );
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredServiceCli(v.clone()))
+                        result = Some(DiscoveredServiceCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.rep_reader != *reader {
@@ -748,7 +736,7 @@ impl NodeInfo {
                     }
                     v.entities.rep_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredServiceCli(v.clone()))
+                        result = Some(DiscoveredServiceCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -779,7 +767,7 @@ impl NodeInfo {
                     );
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredServiceCli(v.clone()))
+                        result = Some(DiscoveredServiceCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.req_writer != *writer {
@@ -791,7 +779,7 @@ impl NodeInfo {
                     }
                     v.entities.req_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredServiceCli(v.clone()))
+                        result = Some(DiscoveredServiceCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -824,7 +812,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.send_goal.req_reader != *reader {
@@ -836,7 +824,7 @@ impl NodeInfo {
                     }
                     v.entities.send_goal.req_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -869,7 +857,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.send_goal.rep_writer != *writer {
@@ -881,7 +869,7 @@ impl NodeInfo {
                     }
                     v.entities.send_goal.rep_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -916,7 +904,7 @@ impl NodeInfo {
                     }
                     v.entities.cancel_goal.req_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -951,7 +939,7 @@ impl NodeInfo {
                     }
                     v.entities.cancel_goal.rep_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -984,7 +972,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.get_result.req_reader != *reader {
@@ -996,7 +984,7 @@ impl NodeInfo {
                     }
                     v.entities.get_result.req_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1029,7 +1017,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.get_result.rep_writer != *writer {
@@ -1041,7 +1029,7 @@ impl NodeInfo {
                     }
                     v.entities.get_result.rep_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1076,7 +1064,7 @@ impl NodeInfo {
                     }
                     v.entities.status_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1109,7 +1097,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.feedback_writer != *writer {
@@ -1121,7 +1109,7 @@ impl NodeInfo {
                     }
                     v.entities.feedback_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionSrv(v.clone()))
+                        result = Some(DiscoveredActionSrv(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1154,7 +1142,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.send_goal.rep_reader != *reader {
@@ -1166,7 +1154,7 @@ impl NodeInfo {
                     }
                     v.entities.send_goal.rep_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1199,7 +1187,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.send_goal.req_writer != *writer {
@@ -1211,7 +1199,7 @@ impl NodeInfo {
                     }
                     v.entities.send_goal.req_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1246,7 +1234,7 @@ impl NodeInfo {
                     }
                     v.entities.cancel_goal.rep_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1281,7 +1269,7 @@ impl NodeInfo {
                     }
                     v.entities.cancel_goal.req_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1314,7 +1302,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.get_result.rep_reader != *reader {
@@ -1326,7 +1314,7 @@ impl NodeInfo {
                     }
                     v.entities.get_result.rep_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1359,7 +1347,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.get_result.req_writer != *writer {
@@ -1371,7 +1359,7 @@ impl NodeInfo {
                     }
                     v.entities.get_result.req_writer = *writer;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1406,7 +1394,7 @@ impl NodeInfo {
                     }
                     v.entities.status_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1439,7 +1427,7 @@ impl NodeInfo {
                     }
                     v.typ = typ;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 if v.entities.feedback_reader != *reader {
@@ -1451,7 +1439,7 @@ impl NodeInfo {
                     }
                     v.entities.feedback_reader = *reader;
                     if v.is_complete() {
-                        result = Some(DiscoveredActionCli(v.clone()))
+                        result = Some(DiscoveredActionCli(self.fullname.clone(), v.clone()))
                     };
                 }
                 result
@@ -1465,22 +1453,22 @@ impl NodeInfo {
         let mut events = Vec::new();
 
         for (_, v) in self.topic_pub.drain() {
-            events.push(UndiscoveredTopicPub(v))
+            events.push(UndiscoveredTopicPub(self.fullname.clone(), v))
         }
         for (_, v) in self.topic_sub.drain() {
-            events.push(UndiscoveredTopicSub(v))
+            events.push(UndiscoveredTopicSub(self.fullname.clone(), v))
         }
         for (_, v) in self.service_srv.drain() {
-            events.push(UndiscoveredServiceSrv(v))
+            events.push(UndiscoveredServiceSrv(self.fullname.clone(), v))
         }
         for (_, v) in self.service_cli.drain() {
-            events.push(UndiscoveredServiceCli(v))
+            events.push(UndiscoveredServiceCli(self.fullname.clone(), v))
         }
         for (_, v) in self.action_srv.drain() {
-            events.push(UndiscoveredActionSrv(v))
+            events.push(UndiscoveredActionSrv(self.fullname.clone(), v))
         }
         for (_, v) in self.action_cli.drain() {
-            events.push(UndiscoveredActionCli(v))
+            events.push(UndiscoveredActionCli(self.fullname.clone(), v))
         }
         self.undiscovered_reader.resize(0, Gid::NOT_DISCOVERED);
         self.undiscovered_writer.resize(0, Gid::NOT_DISCOVERED);
@@ -1494,6 +1482,7 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::*;
         if let Some((name, _)) = self.topic_sub.iter().find(|(_, v)| v.reader == *reader) {
             return Some(UndiscoveredTopicSub(
+                self.fullname.clone(),
                 self.topic_sub.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1503,6 +1492,7 @@ impl NodeInfo {
             .find(|(_, v)| v.entities.req_reader == *reader)
         {
             return Some(UndiscoveredServiceSrv(
+                self.fullname.clone(),
                 self.service_srv.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1512,6 +1502,7 @@ impl NodeInfo {
             .find(|(_, v)| v.entities.rep_reader == *reader)
         {
             return Some(UndiscoveredServiceCli(
+                self.fullname.clone(),
                 self.service_cli.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1521,6 +1512,7 @@ impl NodeInfo {
                 || v.entities.get_result.req_reader == *reader
         }) {
             return Some(UndiscoveredActionSrv(
+                self.fullname.clone(),
                 self.action_srv.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1532,6 +1524,7 @@ impl NodeInfo {
                 || v.entities.feedback_reader == *reader
         }) {
             return Some(UndiscoveredActionCli(
+                self.fullname.clone(),
                 self.action_cli.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1545,6 +1538,7 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::*;
         if let Some((name, _)) = self.topic_pub.iter().find(|(_, v)| v.writer == *writer) {
             return Some(UndiscoveredTopicPub(
+                self.fullname.clone(),
                 self.topic_pub.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1554,6 +1548,7 @@ impl NodeInfo {
             .find(|(_, v)| v.entities.rep_writer == *writer)
         {
             return Some(UndiscoveredServiceSrv(
+                self.fullname.clone(),
                 self.service_srv.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1563,6 +1558,7 @@ impl NodeInfo {
             .find(|(_, v)| v.entities.req_writer == *writer)
         {
             return Some(UndiscoveredServiceCli(
+                self.fullname.clone(),
                 self.service_cli.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1574,6 +1570,7 @@ impl NodeInfo {
                 || v.entities.feedback_writer == *writer
         }) {
             return Some(UndiscoveredActionSrv(
+                self.fullname.clone(),
                 self.action_srv.remove(&name.clone()).unwrap(),
             ));
         }
@@ -1583,6 +1580,7 @@ impl NodeInfo {
                 || v.entities.get_result.req_writer == *writer
         }) {
             return Some(UndiscoveredActionCli(
+                self.fullname.clone(),
                 self.action_cli.remove(&name.clone()).unwrap(),
             ));
         }

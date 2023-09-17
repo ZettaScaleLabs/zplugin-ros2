@@ -298,11 +298,7 @@ impl DiscoveredEntities {
                     "ROS2 Node {ros_node_info} declares Reader on {}",
                     entity.topic_name
                 );
-                let event: Option<ROS2DiscoveryEvent> = node.update_with_reader(entity);
-                if let Some(e) = event {
-                    log::info!("ROS2 Node {ros_node_info} declares {e}");
-                    events.push(e);
-                }
+                node.update_with_reader(entity).map(|e| events.push(e));
             } else {
                 log::debug!(
                     "ROS2 Node {ros_node_info} declares a not yet discovered DDS Reader: {rgid}"
@@ -317,11 +313,7 @@ impl DiscoveredEntities {
                     "ROS2 Node {ros_node_info} declares Writer on {}",
                     entity.topic_name
                 );
-                let event: Option<ROS2DiscoveryEvent> = node.update_with_writer(entity);
-                if let Some(e) = event {
-                    log::info!("ROS2 Node {ros_node_info} declares {e}");
-                    events.push(e);
-                }
+                node.update_with_writer(entity).map(|e| events.push(e));
             } else {
                 log::debug!(
                     "ROS2 Node {ros_node_info} declares a not yet discovered DDS Writer: {wgid}"
@@ -424,36 +416,68 @@ impl DiscoveredEntities {
 
 #[derive(Debug)]
 pub enum ROS2DiscoveryEvent {
-    DiscoveredTopicPub(TopicPub),
-    UndiscoveredTopicPub(TopicPub),
-    DiscoveredTopicSub(TopicSub),
-    UndiscoveredTopicSub(TopicSub),
-    DiscoveredServiceSrv(ServiceSrv),
-    UndiscoveredServiceSrv(ServiceSrv),
-    DiscoveredServiceCli(ServiceCli),
-    UndiscoveredServiceCli(ServiceCli),
-    DiscoveredActionSrv(ActionSrv),
-    UndiscoveredActionSrv(ActionSrv),
-    DiscoveredActionCli(ActionCli),
-    UndiscoveredActionCli(ActionCli),
+    DiscoveredTopicPub(String, TopicPub),
+    UndiscoveredTopicPub(String, TopicPub),
+    DiscoveredTopicSub(String, TopicSub),
+    UndiscoveredTopicSub(String, TopicSub),
+    DiscoveredServiceSrv(String, ServiceSrv),
+    UndiscoveredServiceSrv(String, ServiceSrv),
+    DiscoveredServiceCli(String, ServiceCli),
+    UndiscoveredServiceCli(String, ServiceCli),
+    DiscoveredActionSrv(String, ActionSrv),
+    UndiscoveredActionSrv(String, ActionSrv),
+    DiscoveredActionCli(String, ActionCli),
+    UndiscoveredActionCli(String, ActionCli),
+}
+
+impl ROS2DiscoveryEvent {
+    pub fn node_name(&self) -> &str {
+        use ROS2DiscoveryEvent::*;
+        match self {
+            DiscoveredTopicPub(node, _)
+            | UndiscoveredTopicPub(node, _)
+            | DiscoveredTopicSub(node, _)
+            | UndiscoveredTopicSub(node, _)
+            | DiscoveredServiceSrv(node, _)
+            | UndiscoveredServiceSrv(node, _)
+            | DiscoveredServiceCli(node, _)
+            | UndiscoveredServiceCli(node, _)
+            | DiscoveredActionSrv(node, _)
+            | UndiscoveredActionSrv(node, _)
+            | DiscoveredActionCli(node, _)
+            | UndiscoveredActionCli(node, _) => &node,
+        }
+    }
+
+    pub fn interface_name(&self) -> &str {
+        use ROS2DiscoveryEvent::*;
+        match self {
+            DiscoveredTopicPub(_, iface) | UndiscoveredTopicPub(_, iface) => &iface.name,
+            DiscoveredTopicSub(_, iface) | UndiscoveredTopicSub(_, iface) => &iface.name,
+            DiscoveredServiceSrv(_, iface) | UndiscoveredServiceSrv(_, iface) => &iface.name,
+            DiscoveredServiceCli(_, iface) | UndiscoveredServiceCli(_, iface) => &iface.name,
+            DiscoveredActionSrv(_, iface) | UndiscoveredActionSrv(_, iface) => &iface.name,
+            DiscoveredActionCli(_, iface) | UndiscoveredActionCli(_, iface) => &iface.name,
+        }
+    }
 }
 
 impl fmt::Display for ROS2DiscoveryEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ROS2DiscoveryEvent::*;
         match self {
-            DiscoveredTopicPub(v) => write!(f, "Publisher {}: {}", v.name, v.typ),
-            UndiscoveredTopicPub(n) => write!(f, "Publisher {}", n),
-            DiscoveredTopicSub(v) => write!(f, "Subscriber {}: {}", v.name, v.typ),
-            UndiscoveredTopicSub(n) => write!(f, "Subscriber {}", n),
-            DiscoveredServiceSrv(v) => write!(f, "Service Server {}: {}", v.name, v.typ),
-            UndiscoveredServiceSrv(n) => write!(f, "Service Server {}", n),
-            DiscoveredServiceCli(v) => write!(f, "Service Client {}: {}", v.name, v.typ),
-            UndiscoveredServiceCli(n) => write!(f, "Service Client {}", n),
-            DiscoveredActionSrv(v) => write!(f, "Action Server {}: {}", v.name, v.typ),
-            UndiscoveredActionSrv(n) => write!(f, "Action Server {}", n),
-            DiscoveredActionCli(v) => write!(f, "Action Client {}: {}", v.name, v.typ),
-            UndiscoveredActionCli(n) => write!(f, "Action Client {}", n),
+            DiscoveredTopicPub(node, iface) => write!(f, "Node {node} declares {iface}"),
+            DiscoveredTopicSub(node, iface) => write!(f, "Node {node} declares {iface}"),
+            DiscoveredServiceSrv(node, iface) => write!(f, "Node {node} declares {iface}"),
+            DiscoveredServiceCli(node, iface) => write!(f, "Node {node} declares {iface}"),
+            DiscoveredActionSrv(node, iface) => write!(f, "Node {node} declares {iface}"),
+            DiscoveredActionCli(node, iface) => write!(f, "Node {node} declares {iface}"),
+            UndiscoveredTopicPub(node, iface) => write!(f, "Node {node} undeclares {iface}"),
+            UndiscoveredTopicSub(node, iface) => write!(f, "Node {node} undeclares {iface}"),
+            UndiscoveredServiceSrv(node, iface) => write!(f, "Node {node} undeclares {iface}"),
+            UndiscoveredServiceCli(node, iface) => write!(f, "Node {node} undeclares {iface}"),
+            UndiscoveredActionSrv(node, iface) => write!(f, "Node {node} undeclares {iface}"),
+            UndiscoveredActionCli(node, iface) => write!(f, "Node {node} undeclares {iface}"),
         }
     }
 }

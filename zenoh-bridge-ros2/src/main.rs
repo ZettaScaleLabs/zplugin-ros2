@@ -159,7 +159,7 @@ r#"--watchdog=[PERIOD]   'Experimental!! Run a watchdog thread that monitors the
         None => Config::default(),
     };
     // if "ros2" plugin conf is not present, add it (empty to use default config)
-    if config.plugin("dds").is_none() {
+    if config.plugin("ros2").is_none() {
         config.insert_json5("plugins/ros2", "{}").unwrap();
     }
 
