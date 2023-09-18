@@ -20,6 +20,7 @@ use cyclors::*;
 use flume::{unbounded, Receiver, Sender};
 use futures::select;
 use git_version::git_version;
+use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::collections::HashMap;
@@ -53,6 +54,7 @@ mod routes_mgr;
 use config::Config;
 use dds_discovery::*;
 
+use crate::config::Allowance;
 use crate::discovered_entities::ROS2DiscoveryEvent;
 use crate::discovery_mgr::DiscoveryMgr;
 use crate::qos_helpers::*;
@@ -216,19 +218,20 @@ pub async fn run(runtime: Runtime, config: Config) {
         "Create DDS Participant with CYCLONEDDS_URI='{}'",
         env::var("CYCLONEDDS_URI").unwrap_or_default()
     );
-    let dp = unsafe { dds_create_participant(config.domain, std::ptr::null(), std::ptr::null()) };
+    let participant =
+        unsafe { dds_create_participant(config.domain, std::ptr::null(), std::ptr::null()) };
     log::debug!(
         "ROS2 plugin {} using DDS Participant {} created",
         plugin_id,
-        get_guid(&dp).unwrap()
+        get_guid(&participant).unwrap()
     );
 
     let mut ros2_plugin = ROS2PluginRuntime {
-        config,
+        config: Arc::new(config),
         zsession: &zsession,
+        participant,
         _member: member,
         plugin_id: plugin_id.into(),
-        dp,
         admin_space: HashMap::<OwnedKeyExpr, AdminRef>::new(),
     };
 
@@ -236,13 +239,13 @@ pub async fn run(runtime: Runtime, config: Config) {
 }
 
 pub(crate) struct ROS2PluginRuntime<'a> {
-    config: Config,
+    config: Arc<Config>,
     // Note: &'a Arc<Session> here to keep the ownership of Session outside this struct
     // and be able to store the publishers/subscribers it creates in this same struct.
     zsession: &'a Arc<Session>,
+    participant: dds_entity_t,
     _member: LivelinessToken<'a>,
     plugin_id: OwnedKeyExpr,
-    dp: dds_entity_t,
     // admin space: index is the admin_keyexpr (relative to admin_prefix)
     // value is the JSon string to return to queries.
     admin_space: HashMap<OwnedKeyExpr, AdminRef>,
@@ -283,13 +286,18 @@ impl<'a> ROS2PluginRuntime<'a> {
             .expect("Failed to create Liveliness Subscriber");
 
         // create RoutesManager
-        let mut routes_mgr = RoutesMgr::create(self.dp);
-        DiscoveryMgr::create(self.dp);
+        let mut routes_mgr = RoutesMgr::create(
+            self.plugin_id.clone(),
+            self.config.clone(),
+            self.zsession,
+            self.participant,
+        );
+        DiscoveryMgr::create(self.participant);
 
         // Create and start DiscoveryManager
         let (tx, discovery_rcv): (Sender<ROS2DiscoveryEvent>, Receiver<ROS2DiscoveryEvent>) =
             unbounded();
-        let mut discovery_mgr = DiscoveryMgr::create(self.dp);
+        let mut discovery_mgr = DiscoveryMgr::create(self.participant);
         discovery_mgr.run(tx).await;
 
         // declare admin space queryable
@@ -320,11 +328,11 @@ impl<'a> ROS2PluginRuntime<'a> {
                     use ROS2DiscoveryEvent::*;
                     match evt {
                         Ok(evt) => {
-                            if self.is_allowed(evt.interface_name()) {
-                                log::info!("{evt} => ALLOWED");
-
+                            if self.is_allowed(&evt) {
+                                log::info!("{evt} - Allowed");
+                                routes_mgr.update(evt).await;
                             } else {
-                                log::info!("{evt} => Denied per config");
+                                log::info!("{evt} - Denied per config");
                             }
                         }
                         Err(e) => log::error!("Internal Error: received from DiscoveryMgr: {e}")
@@ -366,12 +374,21 @@ impl<'a> ROS2PluginRuntime<'a> {
         }
     }
 
-    fn is_allowed(&self, iface: &str) -> bool {
-        match (&self.config.allow, &self.config.deny) {
-            (Some(allow), None) => allow.is_match(iface),
-            (None, Some(deny)) => !deny.is_match(iface),
-            (Some(allow), Some(deny)) => allow.is_match(iface) && !deny.is_match(iface),
-            (None, None) => true,
+    fn is_allowed(&self, evt: &ROS2DiscoveryEvent) -> bool {
+        if let Some(allowance) = &self.config.allowance {
+            use ROS2DiscoveryEvent::*;
+            match evt {
+                DiscoveredTopicPub(_, iface) => allowance.is_publisher_allowed(&iface.name),
+                DiscoveredTopicSub(_, iface) => allowance.is_subscriber_allowed(&iface.name),
+                DiscoveredServiceSrv(_, iface) => allowance.is_service_srv_allowed(&iface.name),
+                DiscoveredServiceCli(_, iface) => allowance.is_service_cli_allowed(&iface.name),
+                DiscoveredActionSrv(_, iface) => allowance.is_action_srv_allowed(&iface.name),
+                DiscoveredActionCli(_, iface) => allowance.is_action_cli_allowed(&iface.name),
+                _ => true, // only Undiscovered events remain - always allow them (in case dynamic change of config is supported)
+            }
+        } else {
+            // no allow/deny configured => allow all
+            true
         }
     }
 
@@ -537,5 +554,16 @@ impl Timed for ChannelEvent {
         if self.tx.send(()).is_err() {
             log::warn!("Error sending periodic timer notification on channel");
         };
+    }
+}
+
+#[inline]
+fn is_allowed(name: &str, allow_re: &Option<Regex>, deny_re: &Option<Regex>) -> bool {
+    println!("-- is_allowed {name} by {allow_re:?} / {deny_re:?}");
+    match (allow_re, deny_re) {
+        (Some(allow), None) => allow.is_match(name),
+        (None, Some(deny)) => !deny.is_match(name),
+        (Some(allow), Some(deny)) => allow.is_match(name) && !deny.is_match(name),
+        (None, None) => true,
     }
 }

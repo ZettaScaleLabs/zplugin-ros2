@@ -29,7 +29,7 @@ use zenoh_ext::{FetchingSubscriber, SubscriberBuilderExt};
 
 use crate::ROS2PluginRuntime;
 use crate::{
-    dds_discovery::*, qos::Qos, vec_into_raw_parts, KE_ANY_1_SEGMENT, KE_PREFIX_PUB_CACHE,
+    dds_discovery::*, qos::Qos, vec_into_raw_parts, Config, KE_ANY_1_SEGMENT, KE_PREFIX_PUB_CACHE,
     LOG_PAYLOAD,
 };
 
@@ -93,7 +93,9 @@ impl fmt::Display for RouteZenohDDS<'_> {
 
 impl RouteZenohDDS<'_> {
     pub(crate) async fn new<'a, 'b>(
-        plugin: &ROS2PluginRuntime<'a>,
+        config: &Config,
+        zsession: &'a Arc<Session>,
+        participant: dds_entity_t,
         ke: OwnedKeyExpr,
         querying_subscriber: bool,
         topic_name: String,
@@ -110,7 +112,7 @@ impl RouteZenohDDS<'_> {
         );
 
         let dds_writer = create_forwarding_dds_writer(
-            plugin.dp,
+            participant,
             topic_name.clone(),
             topic_type.clone(),
             keyless,
@@ -134,14 +136,13 @@ impl RouteZenohDDS<'_> {
                     query_selector
                 );
 
-            let sub = plugin
-                .zsession
+            let sub = zsession
                 .declare_subscriber(ke.clone())
                 .callback(subscriber_callback)
                 .allowed_origin(Locality::Remote) // Allow only remote publications to avoid loops
                 .reliable()
                 .querying()
-                .query_timeout(plugin.config.queries_timeout)
+                .query_timeout(config.queries_timeout)
                 .query_selector(query_selector)
                 .query_accept_replies(ReplyKeyExpr::Any)
                 .res()
@@ -153,8 +154,7 @@ impl RouteZenohDDS<'_> {
                 })?;
             ZSubscriber::FetchingSubscriber(sub)
         } else {
-            let sub = plugin
-                .zsession
+            let sub = zsession
                 .declare_subscriber(ke.clone())
                 .callback(subscriber_callback)
                 .allowed_origin(Locality::Remote) // Allow only remote publications to avoid loops
@@ -170,7 +170,7 @@ impl RouteZenohDDS<'_> {
         };
 
         Ok(RouteZenohDDS {
-            zenoh_session: plugin.zsession,
+            zenoh_session: zsession,
             zenoh_subscriber,
             topic_name,
             topic_type,

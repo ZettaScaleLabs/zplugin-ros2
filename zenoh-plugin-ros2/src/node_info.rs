@@ -327,9 +327,15 @@ pub struct NodeInfo {
         serialize_with = "serialize_hashmap_values"
     )]
     pub service_cli: HashMap<String, ServiceCli>,
-    #[serde(rename = "action_servers", serialize_with = "serialize_hashmap_values")]
+    #[serde(
+        rename = "action_servers",
+        serialize_with = "serialize_hashmap_values"
+    )]
     pub action_srv: HashMap<String, ActionSrv>,
-    #[serde(rename = "action_clients", serialize_with = "serialize_hashmap_values")]
+    #[serde(
+        rename = "action_clients",
+        serialize_with = "serialize_hashmap_values"
+    )]
     pub action_cli: HashMap<String, ActionCli>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub undiscovered_reader: Vec<Gid>,

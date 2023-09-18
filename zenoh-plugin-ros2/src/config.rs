@@ -44,14 +44,164 @@ pub struct Config {
         deserialize_with = "deserialize_duration"
     )]
     pub queries_timeout: Duration,
-    #[serde(default, deserialize_with = "deserialize_regex")]
-    pub allow: Option<Regex>,
-    #[serde(default, deserialize_with = "deserialize_regex")]
-    pub deny: Option<Regex>,
+    #[serde(default, flatten)]
+    pub allowance: Option<Allowance>,
     #[serde(default)]
     __required__: bool,
     #[serde(default, deserialize_with = "deserialize_paths")]
     __path__: Vec<String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub enum Allowance {
+    #[serde(rename = "allow")]
+    Allow(ROS2InterfacesRegex),
+    #[serde(rename = "deny")]
+    Deny(ROS2InterfacesRegex),
+}
+
+impl Allowance {
+    pub fn is_publisher_allowed(&self, name: &str) -> bool {
+        use Allowance::*;
+        match self {
+            Allow(r) => r
+                .publishers
+                .as_ref()
+                .map(|re| {
+                    println!("-- pub is_match({name}):{}", re.is_match(name));
+                    re.is_match(name)
+                })
+                .unwrap_or(false),
+            Deny(r) => r
+                .publishers
+                .as_ref()
+                .map(|re| {
+                    println!("-- pub ! is_match({name}):{}", re.is_match(name));
+                    !re.is_match(name)
+                })
+                .unwrap_or(true),
+        }
+    }
+
+    pub fn is_subscriber_allowed(&self, name: &str) -> bool {
+        use Allowance::*;
+        match self {
+            Allow(r) => r
+                .subscribers
+                .as_ref()
+                .map(|re| re.is_match(name))
+                .unwrap_or(false),
+            Deny(r) => r
+                .subscribers
+                .as_ref()
+                .map(|re| !re.is_match(name))
+                .unwrap_or(true),
+        }
+    }
+
+    pub fn is_service_srv_allowed(&self, name: &str) -> bool {
+        use Allowance::*;
+        match self {
+            Allow(r) => r
+                .service_servers
+                .as_ref()
+                .map(|re| re.is_match(name))
+                .unwrap_or(false),
+            Deny(r) => r
+                .service_servers
+                .as_ref()
+                .map(|re| !re.is_match(name))
+                .unwrap_or(true),
+        }
+    }
+
+    pub fn is_service_cli_allowed(&self, name: &str) -> bool {
+        use Allowance::*;
+        match self {
+            Allow(r) => r
+                .service_clients
+                .as_ref()
+                .map(|re| re.is_match(name))
+                .unwrap_or(false),
+            Deny(r) => r
+                .service_clients
+                .as_ref()
+                .map(|re| !re.is_match(name))
+                .unwrap_or(true),
+        }
+    }
+
+    pub fn is_action_srv_allowed(&self, name: &str) -> bool {
+        use Allowance::*;
+        match self {
+            Allow(r) => r
+                .action_servers
+                .as_ref()
+                .map(|re| re.is_match(name))
+                .unwrap_or(false),
+            Deny(r) => r
+                .action_servers
+                .as_ref()
+                .map(|re| !re.is_match(name))
+                .unwrap_or(true),
+        }
+    }
+
+    pub fn is_action_cli_allowed(&self, name: &str) -> bool {
+        use Allowance::*;
+        match self {
+            Allow(r) => r
+                .action_clients
+                .as_ref()
+                .map(|re| re.is_match(name))
+                .unwrap_or(false),
+            Deny(r) => r
+                .action_clients
+                .as_ref()
+                .map(|re| !re.is_match(name))
+                .unwrap_or(true),
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Default)]
+pub struct ROS2InterfacesRegex {
+    #[serde(
+        default,
+        deserialize_with = "deserialize_regex",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub publishers: Option<Regex>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_regex",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub subscribers: Option<Regex>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_regex",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub service_servers: Option<Regex>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_regex",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub service_clients: Option<Regex>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_regex",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub action_servers: Option<Regex>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_regex",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub action_clients: Option<Regex>,
 }
 
 fn default_nodename() -> OwnedKeyExpr {
@@ -138,7 +288,7 @@ impl<'de> Visitor<'de> for RegexVisitor {
     where
         E: de::Error,
     {
-        Regex::new(value)
+        Regex::new(&format!("^{value}$"))
             .map(Some)
             .map_err(|e| de::Error::custom(format!("Invalid regex '{value}': {e}")))
     }
@@ -148,12 +298,70 @@ impl<'de> Visitor<'de> for RegexVisitor {
         A: de::SeqAccess<'de>,
     {
         let mut vec: Vec<String> = Vec::new();
-        while let Some(s) = seq.next_element()? {
-            vec.push(s);
+        while let Some(s) = seq.next_element::<String>()? {
+            vec.push(format!("^{s}$"));
         }
         let s: String = vec.join("|");
         Regex::new(&s)
             .map(Some)
             .map_err(|e| de::Error::custom(format!("Invalid regex '{s}': {e}")))
+    }
+}
+
+mod tests {
+    use super::*;
+    use serde::{de, Deserialize, Deserializer, Serialize};
+    use std::ops::Deref;
+    use std::str::FromStr;
+
+    #[derive(Deserialize, Debug, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Config1 {
+        pub domain: u32,
+        #[serde(flatten)]
+        pub allowance: Option<Allowance1>,
+    }
+
+    #[derive(Deserialize, Debug, Serialize)]
+    pub enum Allowance1 {
+        #[serde(rename = "allow")]
+        Allow(MyRegex),
+        #[serde(rename = "deny")]
+        Deny(MyRegex),
+    }
+
+    #[derive(Deserialize, Debug, Serialize)]
+    pub struct MyRegex {
+        pub pubs: String,
+        pub subs: String,
+    }
+
+    #[test]
+    fn test_serde() {
+        let conf: Config1 = Config1 {
+            domain: 1,
+            allowance: Some(Allowance1::Allow(MyRegex {
+                pubs: "P".into(),
+                subs: "S".into(),
+            })),
+        };
+
+        println!("conf: {conf:?}");
+
+        println!("json: {}", serde_json::to_string(&conf).unwrap());
+
+        let x: Config1 =
+            serde_json::from_str(r#"{"domain":1,"allow":{"pubs":"P","subs":"S"}}"#).unwrap();
+        println!("conf: {x:?}");
+
+        let x: Config1 =
+            serde_json::from_str(r#"{"domain":1,"deny":{"pubs":"P","subs":"S"}}"#).unwrap();
+        println!("conf: {x:?}");
+
+        let x: Config1 = serde_json::from_str(
+            r#"{"domain":1,"allow":{"pubs":"P","subs":"S"},"deny":{"pubs":"P","subs":"S"}}"#,
+        )
+        .unwrap();
+        println!("conf: {x:?}");
     }
 }

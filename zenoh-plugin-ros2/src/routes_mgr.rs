@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::ROS2PluginRuntime;
 //
 // Copyright (c) 2022 ZettaScale Technology
@@ -34,6 +35,7 @@ use zenoh::prelude::OwnedKeyExpr;
 use zenoh::publication::CongestionControl;
 use zenoh::queryable::Query;
 use zenoh::sample::Sample;
+use zenoh::Session;
 use zenoh_core::zread;
 use zenoh_core::zwrite;
 use zenoh_util::{TimedEvent, Timer};
@@ -64,6 +66,9 @@ enum RouteRef {
 }
 
 pub struct RoutesMgr<'a> {
+    plugin_id: OwnedKeyExpr,
+    config: Arc<Config>,
+    zsession: &'a Arc<Session>,
     participant: dds_entity_t,
     // maps of established routes from/to DDS (indexed by zenoh key expression)
     routes_publishers: HashMap<OwnedKeyExpr, RouteDDSZenoh<'a>>,
@@ -73,8 +78,16 @@ pub struct RoutesMgr<'a> {
 }
 
 impl<'a> RoutesMgr<'a> {
-    pub fn create(participant: dds_entity_t) -> RoutesMgr<'a> {
+    pub fn create(
+        plugin_id: OwnedKeyExpr,
+        config: Arc<Config>,
+        zsession: &'a Arc<Session>,
+        participant: dds_entity_t,
+    ) -> RoutesMgr<'a> {
         RoutesMgr {
+            plugin_id,
+            config,
+            zsession,
             participant,
             routes_publishers: HashMap::new(),
             routes_subscribers: HashMap::new(),
@@ -82,10 +95,56 @@ impl<'a> RoutesMgr<'a> {
         }
     }
 
+    pub(crate) async fn update(&mut self, event: ROS2DiscoveryEvent) {
+        use ROS2DiscoveryEvent::*;
+        match event {
+            DiscoveredTopicPub(node, iface) => {
+                log::info!("... TODO: create Publisher route for {}", iface.name);
+                ////// TODO
+
+                // self.try_add_route_from_dds(
+                //     plugin,
+                //     ke, iface.name, iface.typ, None, keyless, reader_qos, congestion_ctrl)
+            }
+            UndiscoveredTopicPub(node, iface) => {
+                log::info!("... TODO: delete Publisher route for {}", iface.name);
+            }
+            DiscoveredTopicSub(node, iface) => {
+                log::info!("... TODO: create Subscriber route for {}", iface.name);
+            }
+            UndiscoveredTopicSub(node, iface) => {
+                log::info!("... TODO: delete Subscriber route for {}", iface.name);
+            }
+            DiscoveredServiceSrv(node, iface) => {
+                log::info!("... TODO: create Service Server route for {}", iface.name);
+            }
+            UndiscoveredServiceSrv(node, iface) => {
+                log::info!("... TODO: delete Service Server route for {}", iface.name);
+            }
+            DiscoveredServiceCli(node, iface) => {
+                log::info!("... TODO: create Service Client route for {}", iface.name);
+            }
+            UndiscoveredServiceCli(node, iface) => {
+                log::info!("... TODO: delete Service Client route for {}", iface.name);
+            }
+            DiscoveredActionSrv(node, iface) => {
+                log::info!("... TODO: create Action Server route for {}", iface.name);
+            }
+            UndiscoveredActionSrv(node, iface) => {
+                log::info!("... TODO: delete Action Server route for {}", iface.name);
+            }
+            DiscoveredActionCli(node, iface) => {
+                log::info!("... TODO: create Action Client route for {}", iface.name);
+            }
+            UndiscoveredActionCli(node, iface) => {
+                log::info!("... TODO: delete Action Client route for {}", iface.name);
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn try_add_route_from_dds(
         &mut self,
-        plugin: &ROS2PluginRuntime<'a>,
         ke: OwnedKeyExpr,
         topic_name: &str,
         topic_type: &str,
@@ -105,7 +164,10 @@ impl<'a> RoutesMgr<'a> {
 
         // create route DDS->Zenoh
         match RouteDDSZenoh::new(
-            plugin,
+            &self.config,
+            &self.plugin_id,
+            &self.zsession,
+            self.participant,
             topic_name.into(),
             topic_type.into(),
             type_info,
@@ -135,7 +197,6 @@ impl<'a> RoutesMgr<'a> {
 
     async fn try_add_route_to_dds(
         &mut self,
-        plugin: &ROS2PluginRuntime<'a>,
         ke: OwnedKeyExpr,
         topic_name: &str,
         topic_type: &str,
@@ -154,7 +215,9 @@ impl<'a> RoutesMgr<'a> {
 
         // create route Zenoh->DDS
         match RouteZenohDDS::new(
-            plugin,
+            &self.config,
+            &self.zsession,
+            self.participant,
             ke.clone(),
             is_transient,
             topic_name.into(),

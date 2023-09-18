@@ -15,6 +15,7 @@
 use cyclors::qos::{HistoryKind, Qos};
 use cyclors::{dds_entity_t, DDS_LENGTH_UNLIMITED};
 use serde::Serialize;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashSet, fmt};
 use zenoh::prelude::r#async::AsyncResolve;
@@ -81,7 +82,10 @@ impl fmt::Display for RouteDDSZenoh<'_> {
 impl RouteDDSZenoh<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn new<'a>(
-        plugin: &ROS2PluginRuntime<'a>,
+        config: &Config,
+        plugin_id: &keyexpr,
+        zsession: &'a Arc<Session>,
+        participant: dds_entity_t,
         topic_name: String,
         topic_type: String,
         type_info: &Option<TypeInfo>,
@@ -98,8 +102,7 @@ impl RouteDDSZenoh<'_> {
         );
 
         // declare the zenoh key expression
-        let declared_ke = plugin
-            .zsession
+        let declared_ke = zsession
             .declare_keyexpr(ke.clone())
             .res()
             .await
@@ -139,11 +142,10 @@ impl RouteDDSZenoh<'_> {
                 "Caching publications for TRANSIENT_LOCAL Writer on resource {} with history {} (Writer uses {:?} and DurabilityService.max_instances={})",
                 ke, history, reader_qos.history, durability_service_qos.max_instances
             );
-            let pub_cache = plugin
-                .zsession
+            let pub_cache = zsession
                 .declare_publication_cache(&declared_ke)
                 .history(history)
-                .queryable_prefix(*KE_PREFIX_PUB_CACHE / &plugin.plugin_id)
+                .queryable_prefix(*KE_PREFIX_PUB_CACHE / plugin_id)
                 .queryable_allowed_origin(Locality::Remote) // Note: don't reply to queries from local QueryingSubscribers
                 .res()
                 .await
@@ -152,12 +154,7 @@ impl RouteDDSZenoh<'_> {
                 })?;
             ZPublisher::PublicationCache(pub_cache)
         } else {
-            if let Err(e) = plugin
-                .zsession
-                .declare_publisher(declared_ke.clone())
-                .res()
-                .await
-            {
+            if let Err(e) = zsession.declare_publisher(declared_ke.clone()).res().await {
                 log::warn!(
                     "Failed to declare publisher for key {} (rid={}): {}",
                     ke,
@@ -168,18 +165,18 @@ impl RouteDDSZenoh<'_> {
             ZPublisher::Publisher(declared_ke.clone())
         };
 
-        let read_period = get_read_period(&plugin.config, &ke);
+        let read_period = get_read_period(&config, &ke);
 
         // create matching DDS Writer that forwards data coming from zenoh
         let dds_reader = create_forwarding_dds_reader(
-            plugin.dp,
+            participant,
             topic_name.clone(),
             topic_type.clone(),
             type_info,
             keyless,
             reader_qos,
             declared_ke,
-            plugin.zsession.clone(),
+            zsession.clone(),
             read_period,
             congestion_ctrl,
         )?;
