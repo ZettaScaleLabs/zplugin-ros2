@@ -30,10 +30,10 @@ use std::{
 use zenoh::buffers::ZBuf;
 use zenoh::prelude::HasReader;
 
-pub(crate) const ROS_DISCOVERY_INFO_TOPIC_NAME: &str = "ros_discovery_info";
+pub const ROS_DISCOVERY_INFO_TOPIC_NAME: &str = "ros_discovery_info";
 const ROS_DISCOVERY_INFO_TOPIC_TYPE: &str = "rmw_dds_common::msg::dds_::ParticipantEntitiesInfo_";
 
-pub(crate) struct RosDiscoveryInfoMgr {
+pub struct RosDiscoveryInfoMgr {
     reader: dds_entity_t,
     writer: dds_entity_t,
 }
@@ -56,7 +56,7 @@ impl Drop for RosDiscoveryInfoMgr {
 }
 
 impl RosDiscoveryInfoMgr {
-    pub(crate) fn create(participant: dds_entity_t) -> Result<RosDiscoveryInfoMgr, String> {
+    pub fn create(participant: dds_entity_t) -> Result<RosDiscoveryInfoMgr, String> {
         let cton = CString::new(ROS_DISCOVERY_INFO_TOPIC_NAME)
             .unwrap()
             .into_raw();
@@ -134,7 +134,7 @@ impl RosDiscoveryInfoMgr {
         }
     }
 
-    pub(crate) fn read(&self) -> Vec<ParticipantEntitiesInfo> {
+    pub fn read(&self) -> Vec<ParticipantEntitiesInfo> {
         unsafe {
             let mut zp: *mut ddsi_serdata = std::ptr::null_mut();
             #[allow(clippy::uninit_assumed_init)]
@@ -184,7 +184,7 @@ impl RosDiscoveryInfoMgr {
         }
     }
 
-    pub(crate) fn write(&self, info: &ParticipantEntitiesInfo) -> Result<(), String> {
+    pub fn write(&self, info: &ParticipantEntitiesInfo) -> Result<(), String> {
         unsafe {
             let buf = cdr::serialize::<_, _, CdrLe>(info, Infinite)
                 .map_err(|e| format!("Error serializing ParticipantEntitiesInfo: {e}"))?;
@@ -247,7 +247,7 @@ pub struct NodeEntitiesInfo {
 }
 
 impl NodeEntitiesInfo {
-    pub(crate) fn full_name(&self) -> String {
+    pub fn full_name(&self) -> String {
         format!(
             "{}/{}",
             if &self.node_namespace == "/" {

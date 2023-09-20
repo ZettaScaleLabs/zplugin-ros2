@@ -48,8 +48,8 @@ mod gid;
 mod node_info;
 mod qos_helpers;
 mod ros_discovery;
-mod route_topic_dds_zenoh;
-mod route_topic_zenoh_dds;
+mod route_publisher;
+mod route_subscriber;
 mod routes_mgr;
 use config::Config;
 use dds_discovery::*;
@@ -82,9 +82,9 @@ lazy_static::lazy_static!(
 );
 
 zenoh::kedefine!(
-    pub(crate) ke_admin_version: "${plugin_status_key:**}/__version__",
-    pub(crate) ke_admin_prefix: "@/service/${zid:*}/ros2",
-    pub(crate) ke_liveliness_plugin: "@ros2/${plugin_id:**}",
+    pub ke_admin_version: "${plugin_status_key:**}/__version__",
+    pub ke_admin_prefix: "@/service/${zid:*}/ros2",
+    pub ke_liveliness_plugin: "@ros2/${plugin_id:**}",
 );
 
 // CycloneDDS' localhost-only: set network interface address (shortened form of config would be
@@ -183,8 +183,8 @@ pub async fn run(runtime: Runtime, config: Config) {
         }
     };
 
-    // if "localhost_only" is set, configure CycloneDDS to use only localhost interface
-    if config.localhost_only {
+    // if "ros_localhost_only" is set, configure CycloneDDS to use only localhost interface
+    if config.ros_localhost_only {
         env::set_var(
             "CYCLONEDDS_URI",
             format!(
@@ -215,7 +215,8 @@ pub async fn run(runtime: Runtime, config: Config) {
 
     // create DDS Participant
     log::debug!(
-        "Create DDS Participant with CYCLONEDDS_URI='{}'",
+        "Create DDS Participant on domain {} with CYCLONEDDS_URI='{}'",
+        config.domain,
         env::var("CYCLONEDDS_URI").unwrap_or_default()
     );
     let participant =
@@ -238,7 +239,7 @@ pub async fn run(runtime: Runtime, config: Config) {
     ros2_plugin.run().await;
 }
 
-pub(crate) struct ROS2PluginRuntime<'a> {
+pub struct ROS2PluginRuntime<'a> {
     config: Arc<Config>,
     // Note: &'a Arc<Session> here to keep the ownership of Session outside this struct
     // and be able to store the publishers/subscribers it creates in this same struct.
@@ -285,20 +286,21 @@ impl<'a> ROS2PluginRuntime<'a> {
             .await
             .expect("Failed to create Liveliness Subscriber");
 
+        // Create and start DiscoveryManager
+        let (tx, discovery_rcv): (Sender<ROS2DiscoveryEvent>, Receiver<ROS2DiscoveryEvent>) =
+            unbounded();
+        let mut discovery_mgr = DiscoveryMgr::create(self.participant);
+        discovery_mgr.run(tx).await;
+
         // create RoutesManager
         let mut routes_mgr = RoutesMgr::create(
             self.plugin_id.clone(),
             self.config.clone(),
             self.zsession,
             self.participant,
+            discovery_mgr.discovered_entities.clone(),
         );
         DiscoveryMgr::create(self.participant);
-
-        // Create and start DiscoveryManager
-        let (tx, discovery_rcv): (Sender<ROS2DiscoveryEvent>, Receiver<ROS2DiscoveryEvent>) =
-            unbounded();
-        let mut discovery_mgr = DiscoveryMgr::create(self.participant);
-        discovery_mgr.run(tx).await;
 
         // declare admin space queryable
         let admin_keyexpr_prefix =
@@ -325,12 +327,13 @@ impl<'a> ROS2PluginRuntime<'a> {
         loop {
             select!(
                 evt = discovery_rcv.recv_async() => {
-                    use ROS2DiscoveryEvent::*;
                     match evt {
                         Ok(evt) => {
                             if self.is_allowed(&evt) {
                                 log::info!("{evt} - Allowed");
-                                routes_mgr.update(evt).await;
+                                if let Err(e) = routes_mgr.update(evt).await {
+                                    log::warn!("Error updating route: {e}");
+                                }
                             } else {
                                 log::info!("{evt} - Denied per config");
                             }
@@ -392,7 +395,7 @@ impl<'a> ROS2PluginRuntime<'a> {
         }
     }
 
-    pub async fn treat_admin_query(&self, query: &Query) {
+    async fn treat_admin_query(&self, query: &Query) {
         let query_ke = query.selector().key_expr;
         if query_ke.is_wild() {
             // iterate over all admin space to find matching keys and reply for each
@@ -410,7 +413,7 @@ impl<'a> ROS2PluginRuntime<'a> {
         }
     }
 
-    pub async fn send_admin_reply(&self, query: &Query, key_expr: &keyexpr, admin_ref: &AdminRef) {
+    async fn send_admin_reply(&self, query: &Query, key_expr: &keyexpr, admin_ref: &AdminRef) {
         let value: Value = match admin_ref {
             AdminRef::Version => VERSION_JSON_VALUE.clone(),
             AdminRef::Config => match serde_json::to_value(self) {
@@ -431,115 +434,9 @@ impl<'a> ROS2PluginRuntime<'a> {
     }
 }
 
-// Copy and adapt Writer's QoS for creation of a matching Reader
-fn adapt_writer_qos_for_reader(qos: &Qos) -> Qos {
-    let mut reader_qos = qos.clone();
-
-    // Unset any writer QoS that doesn't apply to data readers
-    reader_qos.durability_service = None;
-    reader_qos.ownership_strength = None;
-    reader_qos.transport_priority = None;
-    reader_qos.lifespan = None;
-    reader_qos.writer_data_lifecycle = None;
-    reader_qos.writer_batching = None;
-
-    // Unset proprietary QoS which shouldn't apply
-    reader_qos.properties = None;
-    reader_qos.entity_name = None;
-    reader_qos.ignore_local = None;
-
-    // Set default Reliability QoS if not set for writer
-    if reader_qos.reliability.is_none() {
-        reader_qos.reliability = Some({
-            Reliability {
-                kind: ReliabilityKind::BEST_EFFORT,
-                max_blocking_time: DDS_100MS_DURATION,
-            }
-        });
-    }
-
-    reader_qos
-}
-
-// Copy and adapt Writer's QoS for creation of a proxy Writer
-fn adapt_writer_qos_for_proxy_writer(qos: &Qos) -> Qos {
-    let mut writer_qos = qos.clone();
-
-    // Unset proprietary QoS which shouldn't apply
-    writer_qos.properties = None;
-    writer_qos.entity_name = None;
-
-    // Don't match with readers with the same participant
-    writer_qos.ignore_local = Some(IgnoreLocal {
-        kind: IgnoreLocalKind::PARTICIPANT,
-    });
-
-    writer_qos
-}
-
-// Copy and adapt Reader's QoS for creation of a matching Writer
-fn adapt_reader_qos_for_writer(qos: &Qos) -> Qos {
-    let mut writer_qos = qos.clone();
-
-    // Unset any reader QoS that doesn't apply to data writers
-    writer_qos.time_based_filter = None;
-    writer_qos.reader_data_lifecycle = None;
-    writer_qos.properties = None;
-    writer_qos.entity_name = None;
-
-    // Don't match with readers with the same participant
-    writer_qos.ignore_local = Some(IgnoreLocal {
-        kind: IgnoreLocalKind::PARTICIPANT,
-    });
-
-    // if Reader is TRANSIENT_LOCAL, configure durability_service QoS with same history as the Reader.
-    // This is because CycloneDDS is actually using durability_service.history for transient_local historical data.
-    if is_transient_local(qos) {
-        let history = qos
-            .history
-            .as_ref()
-            .map_or(History::default(), |history| history.clone());
-
-        writer_qos.durability_service = Some(DurabilityService {
-            service_cleanup_delay: 60 * DDS_1S_DURATION,
-            history_kind: history.kind,
-            history_depth: history.depth,
-            max_samples: DDS_LENGTH_UNLIMITED,
-            max_instances: DDS_LENGTH_UNLIMITED,
-            max_samples_per_instance: DDS_LENGTH_UNLIMITED,
-        });
-    }
-    // Workaround for the DDS Writer to correctly match with a FastRTPS Reader
-    writer_qos.reliability = match writer_qos.reliability {
-        Some(mut reliability) => {
-            reliability.max_blocking_time = reliability.max_blocking_time.saturating_add(1);
-            Some(reliability)
-        }
-        _ => {
-            let mut reliability = Reliability::default();
-            reliability.max_blocking_time = reliability.max_blocking_time.saturating_add(1);
-            Some(reliability)
-        }
-    };
-
-    writer_qos
-}
-
-// Copy and adapt Reader's QoS for creation of a proxy Reader
-fn adapt_reader_qos_for_proxy_reader(qos: &Qos) -> Qos {
-    let mut reader_qos = qos.clone();
-
-    // Unset proprietary QoS which shouldn't apply
-    reader_qos.properties = None;
-    reader_qos.entity_name = None;
-    reader_qos.ignore_local = None;
-
-    reader_qos
-}
-
 //TODO replace when stable https://github.com/rust-lang/rust/issues/65816
 #[inline]
-pub(crate) fn vec_into_raw_parts<T>(v: Vec<T>) -> (*mut T, usize, usize) {
+pub fn vec_into_raw_parts<T>(v: Vec<T>) -> (*mut T, usize, usize) {
     let mut me = ManuallyDrop::new(v);
     (me.as_mut_ptr(), me.len(), me.capacity())
 }
@@ -554,16 +451,5 @@ impl Timed for ChannelEvent {
         if self.tx.send(()).is_err() {
             log::warn!("Error sending periodic timer notification on channel");
         };
-    }
-}
-
-#[inline]
-fn is_allowed(name: &str, allow_re: &Option<Regex>, deny_re: &Option<Regex>) -> bool {
-    println!("-- is_allowed {name} by {allow_re:?} / {deny_re:?}");
-    match (allow_re, deny_re) {
-        (Some(allow), None) => allow.is_match(name),
-        (None, Some(deny)) => !deny.is_match(name),
-        (Some(allow), Some(deny)) => allow.is_match(name) && !deny.is_match(name),
-        (None, None) => true,
     }
 }

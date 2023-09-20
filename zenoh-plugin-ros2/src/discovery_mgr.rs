@@ -32,8 +32,8 @@ use crate::ChannelEvent;
 use crate::ROS_DISCOVERY_INFO_POLL_INTERVAL_MS;
 
 pub struct DiscoveryMgr {
-    participant: dds_entity_t,
-    discovered_entities: Arc<RwLock<DiscoveredEntities>>,
+    pub participant: dds_entity_t,
+    pub discovered_entities: Arc<RwLock<DiscoveredEntities>>,
 }
 
 impl DiscoveryMgr {

@@ -95,7 +95,7 @@ r#"-d, --domain=[ID]   'The DDS Domain ID. The default value is "$ROS_DOMAIN_ID"
             .default_value(&DEFAULT_DOMAIN_STR)
         )
         .arg(Arg::from_usage(
-r#"--dds-localhost-only \
+r#"--ros-localhost-only \
 'Configure CycloneDDS to use only the localhost interface. If not set, CycloneDDS will pick the interface defined in "$CYCLONEDDS_URI" configuration, or automatically choose one.
 This option is not active by default, unless the "ROS_LOCALHOST_ONLY" environment variable is set to "1".'"#
         ));
@@ -204,7 +204,7 @@ r#"--watchdog=[PERIOD]   'Experimental!! Run a watchdog thread that monitors the
     // apply DDS related arguments over config
     insert_json5!(config, args, "plugins/ros2/scope", if "scope",);
     insert_json5!(config, args, "plugins/ros2/domain", if "domain", .parse::<u64>().unwrap());
-    insert_json5!(config, args, "plugins/ros2/localhost_only", if "dds-localhost-only");
+    insert_json5!(config, args, "plugins/ros2/localhost_only", if "ros-localhost-only");
     #[cfg(feature = "dds_shm")]
     {
         insert_json5!(config, args, "plugins/ros2/shm_enabled", if "dds-enable-shm");

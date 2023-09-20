@@ -13,7 +13,7 @@
 //
 
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Debug};
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::{prelude::*, queryable::Query};
 
@@ -33,6 +33,33 @@ pub struct DiscoveredEntities {
     ros_participant_info: HashMap<Gid, ParticipantEntitiesInfo>,
     nodes_info: HashMap<Gid, HashMap<String, NodeInfo>>,
     admin_space: HashMap<OwnedKeyExpr, EntityRef>,
+}
+
+impl Debug for DiscoveredEntities {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "participants: {:?}\n",
+            self.participants.keys().collect::<Vec<&Gid>>()
+        );
+        write!(
+            f,
+            "writers: {:?}\n",
+            self.writers.keys().collect::<Vec<&Gid>>()
+        );
+        write!(
+            f,
+            "readers: {:?}\n",
+            self.readers.keys().collect::<Vec<&Gid>>()
+        );
+        write!(f, "ros_participant_info: {:?}\n", self.ros_participant_info);
+        write!(f, "nodes_info: {:?}\n", self.nodes_info);
+        write!(
+            f,
+            "admin_space: {:?}\n",
+            self.admin_space.keys().collect::<Vec<&OwnedKeyExpr>>()
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -70,12 +97,12 @@ impl DiscoveredEntities {
         // Remove associated NodeInfos
         if let Some(nodes) = self.nodes_info.remove(gid) {
             for (name, mut node) in nodes {
-                log::info!("Undiscovered ROS2 Node {}", name);
+                log::info!("Undiscovered ROS Node {}", name);
                 self.admin_space.remove(
                     &zenoh::keformat!(
                         ke_admin_node::formatter(),
                         pgid = gid,
-                        fullname = &name[1..],
+                        fullname = node.fullname_as_keyexpr(),
                     )
                     .unwrap(),
                 );
@@ -123,6 +150,11 @@ impl DiscoveredEntities {
         // insert in Writers list
         self.writers.insert(writer.key, writer);
         event
+    }
+
+    #[inline]
+    pub fn get_writer(&self, gid: &Gid) -> Option<&DdsEntity> {
+        self.writers.get(gid)
     }
 
     #[inline]
@@ -191,6 +223,11 @@ impl DiscoveredEntities {
     }
 
     #[inline]
+    pub fn get_reader(&self, gid: &Gid) -> Option<&DdsEntity> {
+        self.readers.get(gid)
+    }
+
+    #[inline]
     pub fn remove_reader(&mut self, gid: &Gid) -> Option<ROS2DiscoveryEvent> {
         if let Some(reader) = self.readers.remove(gid) {
             self.admin_space.remove(
@@ -233,12 +270,12 @@ impl DiscoveredEntities {
         // Remove nodes that are no longer present in ParticipantEntitiesInfo
         nodes_map.retain(|name, node| {
             if !ros_info.node_entities_info_seq.contains_key(name) {
-                log::info!("Undiscovered ROS2 Node {}", name);
+                log::info!("Undiscovered ROS Node {}", name);
                 admin_space.remove(
                     &zenoh::keformat!(
                         ke_admin_node::formatter(),
                         pgid = ros_info.gid,
-                        fullname = &name[1..],
+                        fullname = node.fullname_as_keyexpr(),
                     )
                     .unwrap(),
                 );
@@ -252,25 +289,35 @@ impl DiscoveredEntities {
 
         // For each declared node in this ros_node_info
         for (name, ros_node_info) in &ros_info.node_entities_info_seq {
-            // Get the corresponding NodeInfo, or create it if not existing
-            let node: &mut NodeInfo = nodes_map.entry(name.into()).or_insert_with(|| {
-                log::info!("Discovered ROS2 Node {}", name);
-                self.admin_space.insert(
-                    zenoh::keformat!(
-                        ke_admin_node::formatter(),
-                        pgid = ros_info.gid,
-                        fullname = &name[1..],
-                    )
-                    .unwrap(),
-                    EntityRef::Node(ros_info.gid, name.clone()),
-                );
-                NodeInfo::create(
+            // If node was not yet discovered, add a new NodeInfo
+            if !nodes_map.contains_key(name) {
+                log::info!("Discovered ROS Node {}", name);
+                match NodeInfo::create(
                     ros_node_info.node_namespace.clone(),
                     ros_node_info.node_name.clone(),
                     ros_info.gid,
-                )
-            });
+                ) {
+                    Ok(node_info) => {
+                        self.admin_space.insert(
+                            zenoh::keformat!(
+                                ke_admin_node::formatter(),
+                                pgid = ros_info.gid,
+                                fullname = node_info.fullname_as_keyexpr(),
+                            )
+                            .unwrap(),
+                            EntityRef::Node(ros_info.gid, node_info.fullname.clone()),
+                        );
+                        nodes_map.insert(node_info.fullname.clone(), node_info);
+                    }
+                    Err(e) => {
+                        log::warn!("ROS Node has incompatible name: {e}");
+                        break;
+                    }
+                }
+            };
+
             // Update NodeInfo, adding resulting events to the list
+            let node = nodes_map.get_mut(name).unwrap();
             events.append(&mut Self::update_node_info(
                 node,
                 ros_node_info,
@@ -295,13 +342,13 @@ impl DiscoveredEntities {
         for rgid in &ros_node_info.reader_gid_seq {
             if let Some(entity) = readers.get(rgid) {
                 log::debug!(
-                    "ROS2 Node {ros_node_info} declares Reader on {}",
+                    "ROS Node {ros_node_info} declares Reader on {}",
                     entity.topic_name
                 );
                 node.update_with_reader(entity).map(|e| events.push(e));
             } else {
                 log::debug!(
-                    "ROS2 Node {ros_node_info} declares a not yet discovered DDS Reader: {rgid}"
+                    "ROS Node {ros_node_info} declares a not yet discovered DDS Reader: {rgid}"
                 );
                 node.undiscovered_reader.push(*rgid);
             }
@@ -310,13 +357,13 @@ impl DiscoveredEntities {
         for wgid in &ros_node_info.writer_gid_seq {
             if let Some(entity) = writers.get(wgid) {
                 log::debug!(
-                    "ROS2 Node {ros_node_info} declares Writer on {}",
+                    "ROS Node {ros_node_info} declares Writer on {}",
                     entity.topic_name
                 );
                 node.update_with_writer(entity).map(|e| events.push(e));
             } else {
                 log::debug!(
-                    "ROS2 Node {ros_node_info} declares a not yet discovered DDS Writer: {wgid}"
+                    "ROS Node {ros_node_info} declares a not yet discovered DDS Writer: {wgid}"
                 );
                 node.undiscovered_writer.push(*wgid);
             }

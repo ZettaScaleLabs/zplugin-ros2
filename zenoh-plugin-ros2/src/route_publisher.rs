@@ -22,6 +22,7 @@ use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
 use zenoh_ext::{PublicationCache, SessionExt};
 
+use crate::gid::Gid;
 use crate::{dds_discovery::*, qos_helpers::*, Config, ROS2PluginRuntime, KE_PREFIX_PUB_CACHE};
 
 enum ZPublisher<'a> {
@@ -41,11 +42,11 @@ impl ZPublisher<'_> {
 // a route from DDS to Zenoh
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Serialize)]
-pub(crate) struct RouteDDSZenoh<'a> {
+pub struct RoutePublisher<'a> {
     // the local DDS Reader created to serve the route (i.e. re-publish to zenoh data coming from DDS)
     #[serde(serialize_with = "serialize_entity_guid")]
     dds_reader: dds_entity_t,
-    // the DDS topic name for re-publication
+    // the DDS topic name to read on
     topic_name: String,
     // the DDS topic type
     topic_type: String,
@@ -56,11 +57,11 @@ pub(crate) struct RouteDDSZenoh<'a> {
     zenoh_publisher: ZPublisher<'a>,
     // the list of remote writers served by this route (admin key expr)
     remote_routed_readers: HashSet<OwnedKeyExpr>,
-    // the list of local readers served by this route (entity keys)
-    local_routed_writers: HashSet<String>,
+    // the list of local readers served by this route
+    local_routed_writers: HashSet<Gid>,
 }
 
-impl Drop for RouteDDSZenoh<'_> {
+impl Drop for RoutePublisher<'_> {
     fn drop(&mut self) {
         if let Err(e) = delete_dds_entity(self.dds_reader) {
             log::warn!("{}: error deleting DDS Reader:  {}", self, e);
@@ -68,7 +69,7 @@ impl Drop for RouteDDSZenoh<'_> {
     }
 }
 
-impl fmt::Display for RouteDDSZenoh<'_> {
+impl fmt::Display for RoutePublisher<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -79,21 +80,21 @@ impl fmt::Display for RouteDDSZenoh<'_> {
     }
 }
 
-impl RouteDDSZenoh<'_> {
+impl RoutePublisher<'_> {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn new<'a>(
+    pub async fn create<'a>(
         config: &Config,
         plugin_id: &keyexpr,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
         topic_name: String,
         topic_type: String,
-        type_info: &Option<TypeInfo>,
+        type_info: &Option<Arc<TypeInfo>>,
         keyless: bool,
         reader_qos: Qos,
         ke: OwnedKeyExpr,
         congestion_ctrl: CongestionControl,
-    ) -> Result<RouteDDSZenoh<'a>, String> {
+    ) -> Result<RoutePublisher<'a>, String> {
         log::debug!(
             "Route DDS->Zenoh ({} -> {}): creation with topic_type={}",
             topic_name,
@@ -181,7 +182,7 @@ impl RouteDDSZenoh<'_> {
             congestion_ctrl,
         )?;
 
-        Ok(RouteDDSZenoh {
+        Ok(RoutePublisher {
             dds_reader,
             topic_name,
             topic_type,
@@ -192,42 +193,42 @@ impl RouteDDSZenoh<'_> {
         })
     }
 
-    pub(crate) fn dds_reader_guid(&self) -> Result<String, String> {
+    pub fn dds_reader_guid(&self) -> Result<String, String> {
         get_guid(&self.dds_reader)
     }
 
-    pub(crate) fn add_remote_routed_reader(&mut self, admin_ke: OwnedKeyExpr) {
+    pub fn add_remote_routed_reader(&mut self, admin_ke: OwnedKeyExpr) {
         self.remote_routed_readers.insert(admin_ke);
     }
 
-    pub(crate) fn remove_remote_routed_reader(&mut self, admin_ke: &keyexpr) {
+    pub fn remove_remote_routed_reader(&mut self, admin_ke: &keyexpr) {
         self.remote_routed_readers.remove(admin_ke);
     }
 
     /// Remove all Readers reference with admin keyexpr containing "sub_ke"
-    pub(crate) fn remove_remote_routed_readers_containing(&mut self, sub_ke: &str) {
+    pub fn remove_remote_routed_readers_containing(&mut self, sub_ke: &str) {
         self.remote_routed_readers.retain(|s| !s.contains(sub_ke));
     }
 
-    pub(crate) fn has_remote_routed_reader(&self) -> bool {
+    pub fn has_remote_routed_reader(&self) -> bool {
         !self.remote_routed_readers.is_empty()
     }
 
-    pub(crate) fn is_routing_remote_reader(&self, entity_key: &str) -> bool {
+    pub fn is_routing_remote_reader(&self, entity_key: &str) -> bool {
         self.remote_routed_readers
             .iter()
             .any(|s| s.contains(entity_key))
     }
 
-    pub(crate) fn add_local_routed_writer(&mut self, entity_key: String) {
+    pub fn add_local_routed_writer(&mut self, entity_key: Gid) {
         self.local_routed_writers.insert(entity_key);
     }
 
-    pub(crate) fn remove_local_routed_writer(&mut self, entity_key: &str) {
+    pub fn remove_local_routed_writer(&mut self, entity_key: &Gid) {
         self.local_routed_writers.remove(entity_key);
     }
 
-    pub(crate) fn has_local_routed_writer(&self) -> bool {
+    pub fn has_local_routed_writer(&self) -> bool {
         !self.local_routed_writers.is_empty()
     }
 }

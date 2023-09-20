@@ -1,5 +1,3 @@
-use crate::config::Config;
-use crate::ROS2PluginRuntime;
 //
 // Copyright (c) 2022 ZettaScale Technology
 //
@@ -13,22 +11,22 @@ use crate::ROS2PluginRuntime;
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use crate::dds_discovery::*;
+use crate::config::Config;
 use crate::discovered_entities::DiscoveredEntities;
 use crate::discovered_entities::ROS2DiscoveryEvent;
-use crate::ros_discovery::*;
-use crate::route_topic_dds_zenoh::RouteDDSZenoh;
-use crate::route_topic_zenoh_dds::RouteZenohDDS;
-use async_std::task;
+use crate::node_info::TopicPub;
+use crate::node_info::TopicSub;
+use crate::qos_helpers::adapt_reader_qos_for_writer;
+use crate::qos_helpers::adapt_writer_qos_for_reader;
+use crate::qos_helpers::is_transient_local;
+use crate::qos_helpers::is_writer_reliable;
+use crate::route_publisher::RoutePublisher;
+use crate::route_subscriber::RouteSubscriber;
 use cyclors::dds_entity_t;
-use cyclors::qos::Qos;
-use flume::{unbounded, Receiver, Sender};
-use futures::select;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::time::Duration;
 use zenoh::prelude::keyexpr;
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::OwnedKeyExpr;
@@ -37,12 +35,8 @@ use zenoh::queryable::Query;
 use zenoh::sample::Sample;
 use zenoh::Session;
 use zenoh_core::zread;
-use zenoh_core::zwrite;
-use zenoh_util::{TimedEvent, Timer};
 
 use crate::ke_for_sure;
-use crate::ChannelEvent;
-use crate::ROS_DISCOVERY_INFO_POLL_INTERVAL_MS;
 
 lazy_static::lazy_static!(
     static ref KE_PREFIX_ROUTE_PUBLISHER: &'static keyexpr = ke_for_sure!("route/topic/pub");
@@ -52,7 +46,7 @@ lazy_static::lazy_static!(
 );
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) enum RouteStatus {
+pub enum RouteStatus {
     Routed(OwnedKeyExpr), // Routing is active, with the zenoh key expression used for the route
     NotAllowed,           // Routing was not allowed per configuration
     CreationFailure(String), // The route creation failed
@@ -61,8 +55,8 @@ pub(crate) enum RouteStatus {
 
 #[derive(Debug)]
 enum RouteRef {
-    PublisherRoute(OwnedKeyExpr),
-    SubscriberRoute(OwnedKeyExpr),
+    PublisherRoute(String),
+    SubscriberRoute(String),
 }
 
 pub struct RoutesMgr<'a> {
@@ -70,9 +64,10 @@ pub struct RoutesMgr<'a> {
     config: Arc<Config>,
     zsession: &'a Arc<Session>,
     participant: dds_entity_t,
-    // maps of established routes from/to DDS (indexed by zenoh key expression)
-    routes_publishers: HashMap<OwnedKeyExpr, RouteDDSZenoh<'a>>,
-    routes_subscribers: HashMap<OwnedKeyExpr, RouteZenohDDS<'a>>,
+    discovered_entities: Arc<RwLock<DiscoveredEntities>>,
+    // maps of established routes - ecah map indexed by topic/service/action name
+    routes_publishers: HashMap<String, RoutePublisher<'a>>,
+    routes_subscribers: HashMap<String, RouteSubscriber<'a>>,
     // admin space: index is the admin_keyexpr (relative to admin_prefix)
     admin_space: HashMap<OwnedKeyExpr, RouteRef>,
 }
@@ -83,34 +78,43 @@ impl<'a> RoutesMgr<'a> {
         config: Arc<Config>,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
+        discovered_entities: Arc<RwLock<DiscoveredEntities>>,
     ) -> RoutesMgr<'a> {
         RoutesMgr {
             plugin_id,
             config,
             zsession,
             participant,
+            discovered_entities,
             routes_publishers: HashMap::new(),
             routes_subscribers: HashMap::new(),
             admin_space: HashMap::new(),
         }
     }
 
-    pub(crate) async fn update(&mut self, event: ROS2DiscoveryEvent) {
+    pub async fn update(&mut self, event: ROS2DiscoveryEvent) -> Result<(), String> {
         use ROS2DiscoveryEvent::*;
         match event {
             DiscoveredTopicPub(node, iface) => {
-                log::info!("... TODO: create Publisher route for {}", iface.name);
-                ////// TODO
-
-                // self.try_add_route_from_dds(
-                //     plugin,
-                //     ke, iface.name, iface.typ, None, keyless, reader_qos, congestion_ctrl)
+                match self.add_route_publisher(&node, &iface).await? {
+                    Some(()) => log::info!("Route succesfully created for {node} {iface:?}"),
+                    None => log::info!(
+                        "A route for Publishers on {} already exists - don't create twice",
+                        iface.name
+                    ),
+                }
             }
             UndiscoveredTopicPub(node, iface) => {
                 log::info!("... TODO: delete Publisher route for {}", iface.name);
             }
             DiscoveredTopicSub(node, iface) => {
-                log::info!("... TODO: create Subscriber route for {}", iface.name);
+                match self.add_route_subscriber(&node, &iface).await? {
+                    Some(()) => log::info!("Route succesfully created for {node} {iface:?}"),
+                    None => log::info!(
+                        "A route for Subscribers on {} already exists - don't create twice",
+                        iface.name
+                    ),
+                }
             }
             UndiscoveredTopicSub(node, iface) => {
                 log::info!("... TODO: delete Subscriber route for {}", iface.name);
@@ -140,128 +144,126 @@ impl<'a> RoutesMgr<'a> {
                 log::info!("... TODO: delete Action Client route for {}", iface.name);
             }
         }
+        Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn try_add_route_from_dds(
+    async fn add_route_publisher(
         &mut self,
-        ke: OwnedKeyExpr,
-        topic_name: &str,
-        topic_type: &str,
-        type_info: &Option<TypeInfo>,
-        keyless: bool,
-        reader_qos: Qos,
-        congestion_ctrl: CongestionControl,
-    ) -> RouteStatus {
-        if self.routes_publishers.contains_key(&ke) {
-            // TODO: check if there is no QoS conflict with existing route
-            log::debug!(
-                "Route from DDS to resource {} already exists -- ignoring",
-                ke
-            );
-            return RouteStatus::Routed(ke);
+        node: &str,
+        iface: &TopicPub,
+    ) -> Result<Option<()>, String> {
+        if self.routes_publishers.contains_key(&iface.name) {
+            // TODO: check compatibility (QoS) of existing route with this Publisher
+            return Ok(None);
         }
 
-        // create route DDS->Zenoh
-        match RouteDDSZenoh::new(
+        // Retrieve info on DDS Writer
+        let (topic_name, topic_type, type_info, keyless, reader_qos) = {
+            let entities = zread!(self.discovered_entities);
+            let entity = entities.get_writer(&iface.writer).ok_or(format!(
+                "Failed to get DDS info for {iface} Writer {}. Already deleted ?",
+                iface.writer
+            ))?;
+            (
+                entity.topic_name.clone(),
+                entity.type_name.clone(),
+                entity.type_info.clone(),
+                entity.keyless,
+                // Create matching QoS for the Route's Reader
+                adapt_writer_qos_for_reader(&entity.qos),
+            )
+        };
+
+        // Zenoh key expression to use for routing
+        // TODO: remap option ?
+        let ke = iface.name_as_keyexpr().to_owned();
+        // CongestionControl to be used when re-publishing over zenoh: Blocking if Writer is RELIABLE (since we don't know what is remote Reader's QoS)
+        let congestion_ctrl = match (
+            self.config.reliable_routes_blocking,
+            is_writer_reliable(&reader_qos.reliability),
+        ) {
+            (true, true) => CongestionControl::Block,
+            _ => CongestionControl::Drop,
+        };
+
+        // create route
+        let route = RoutePublisher::create(
             &self.config,
             &self.plugin_id,
             &self.zsession,
             self.participant,
-            topic_name.into(),
-            topic_type.into(),
-            type_info,
+            topic_name,
+            topic_type,
+            &type_info,
             keyless,
             reader_qos,
-            ke.clone(),
+            ke,
             congestion_ctrl,
         )
-        .await
-        {
-            Ok(route) => {
-                log::info!("{}: created with topic_type={}", route, topic_type);
-                self.add_route_from_dds(ke.clone(), route);
-                RouteStatus::Routed(ke)
-            }
-            Err(e) => {
-                log::error!(
-                    "Route DDS->Zenoh ({} -> {}): creation failed: {}",
-                    topic_name,
-                    ke,
-                    e
-                );
-                RouteStatus::CreationFailure(e)
-            }
-        }
+        .await?;
+
+        // insert reference in admin_space
+        let admin_ke = *KE_PREFIX_ROUTE_PUBLISHER / iface.name_as_keyexpr();
+        self.admin_space
+            .insert(admin_ke, RouteRef::PublisherRoute(iface.name.clone()));
+
+        // insert route in routes_publishers map
+        self.routes_publishers.insert(iface.name.clone(), route);
+        Ok(Some(()))
     }
 
-    async fn try_add_route_to_dds(
+    async fn add_route_subscriber(
         &mut self,
-        ke: OwnedKeyExpr,
-        topic_name: &str,
-        topic_type: &str,
-        keyless: bool,
-        is_transient: bool,
-        writer_qos: Qos,
-    ) -> RouteStatus {
-        if let Some(route) = self.routes_subscribers.get(&ke) {
-            // TODO: check if there is no type or QoS conflict with existing route
-            log::debug!(
-                "Route from resource {} to DDS already exists -- ignoring",
-                ke
-            );
-            return RouteStatus::Routed(ke);
+        node: &str,
+        iface: &TopicSub,
+    ) -> Result<Option<()>, String> {
+        if self.routes_subscribers.contains_key(&iface.name) {
+            // TODO: check compatibility (QoS) of existing route with this Subscriber
+            return Ok(None);
         }
 
-        // create route Zenoh->DDS
-        match RouteZenohDDS::new(
+        // Retrieve info on DDS Reader
+        let (topic_name, topic_type, keyless, writer_qos) = {
+            let entities = zread!(self.discovered_entities);
+            let entity = entities.get_reader(&iface.reader).ok_or(format!(
+                "Failed to get DDS info for {iface} Reader {}. Already deleted ?",
+                iface.reader
+            ))?;
+            (
+                entity.topic_name.clone(),
+                entity.type_name.clone(),
+                entity.keyless,
+                // Create matching QoS for the Route's Writer
+                adapt_reader_qos_for_writer(&entity.qos),
+            )
+        };
+
+        // Zenoh key expression to use for routing
+        // TODO: remap option ?
+        let ke = iface.name_as_keyexpr().to_owned();
+
+        // create route
+        let route = RouteSubscriber::create(
             &self.config,
             &self.zsession,
             self.participant,
             ke.clone(),
-            is_transient,
-            topic_name.into(),
-            topic_type.into(),
+            is_transient_local(&writer_qos),
+            topic_name,
+            topic_type,
             keyless,
             writer_qos,
         )
-        .await
-        {
-            Ok(route) => {
-                log::info!("{}: created with topic_type={}", route, topic_type);
-                self.add_route_to_dds(ke.clone(), route);
-                RouteStatus::Routed(ke)
-            }
-            Err(e) => {
-                log::error!(
-                    "Route Zenoh->DDS ({} -> {}): creation failed: {}",
-                    ke,
-                    topic_name,
-                    e
-                );
-                RouteStatus::CreationFailure(e)
-            }
-        }
-    }
+        .await?;
 
-    fn add_route_from_dds(&mut self, ke: OwnedKeyExpr, r: RouteDDSZenoh<'a>) {
         // insert reference in admin_space
-        let admin_ke = *KE_PREFIX_ROUTE_PUBLISHER / &ke;
+        let admin_ke = *KE_PREFIX_ROUTE_SUBSCRIBER / iface.name_as_keyexpr();
         self.admin_space
-            .insert(admin_ke, RouteRef::PublisherRoute(ke.clone()));
+            .insert(admin_ke, RouteRef::PublisherRoute(iface.name.clone()));
 
         // insert route in routes_publishers map
-        self.routes_publishers.insert(ke, r);
-    }
-
-    fn add_route_to_dds(&mut self, ke: OwnedKeyExpr, r: RouteZenohDDS<'a>) {
-        // insert reference in admin_space
-        let admin_ke = *KE_PREFIX_ROUTE_SUBSCRIBER / &ke;
-        self.admin_space
-            .insert(admin_ke, RouteRef::SubscriberRoute(ke.clone()));
-
-        // insert route in routes_publishers map
-        self.routes_subscribers.insert(ke, r);
+        self.routes_subscribers.insert(iface.name.clone(), route);
+        Ok(Some(()))
     }
 
     pub async fn treat_admin_query(&self, query: &Query, admin_keyexpr_prefix: &keyexpr) {

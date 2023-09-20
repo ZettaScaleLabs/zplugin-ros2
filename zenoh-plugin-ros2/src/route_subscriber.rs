@@ -50,7 +50,7 @@ impl ZSubscriber<'_> {
 // a route from Zenoh to DDS
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Serialize)]
-pub(crate) struct RouteZenohDDS<'a> {
+pub struct RouteSubscriber<'a> {
     // the zenoh session
     #[serde(skip)]
     zenoh_session: &'a Arc<Session>,
@@ -72,7 +72,7 @@ pub(crate) struct RouteZenohDDS<'a> {
     local_routed_readers: HashSet<String>,
 }
 
-impl Drop for RouteZenohDDS<'_> {
+impl Drop for RouteSubscriber<'_> {
     fn drop(&mut self) {
         if let Err(e) = delete_dds_entity(self.dds_writer) {
             log::warn!("{}: error deleting DDS Reader:  {}", self, e);
@@ -80,7 +80,7 @@ impl Drop for RouteZenohDDS<'_> {
     }
 }
 
-impl fmt::Display for RouteZenohDDS<'_> {
+impl fmt::Display for RouteSubscriber<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -91,8 +91,8 @@ impl fmt::Display for RouteZenohDDS<'_> {
     }
 }
 
-impl RouteZenohDDS<'_> {
-    pub(crate) async fn new<'a, 'b>(
+impl RouteSubscriber<'_> {
+    pub async fn create<'a, 'b>(
         config: &Config,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
@@ -102,7 +102,7 @@ impl RouteZenohDDS<'_> {
         topic_type: String,
         keyless: bool,
         writer_qos: Qos,
-    ) -> Result<RouteZenohDDS<'a>, String> {
+    ) -> Result<RouteSubscriber<'a>, String> {
         log::debug!(
             "Route Zenoh->DDS ({} -> {}): creation with topic_type={} querying_subscriber={}",
             ke,
@@ -169,7 +169,7 @@ impl RouteZenohDDS<'_> {
             ZSubscriber::Subscriber(sub)
         };
 
-        Ok(RouteZenohDDS {
+        Ok(RouteSubscriber {
             zenoh_session: zsession,
             zenoh_subscriber,
             topic_name,
@@ -183,7 +183,7 @@ impl RouteZenohDDS<'_> {
 
     /// If this route uses a FetchingSubscriber, query for historical publications
     /// using the specified Selector. Otherwise, do nothing.
-    pub(crate) async fn query_historical_publications<'a, F>(
+    pub async fn query_historical_publications<'a, F>(
         &mut self,
         selector: F,
         query_timeout: Duration,
@@ -227,42 +227,42 @@ impl RouteZenohDDS<'_> {
         }
     }
 
-    pub(crate) fn dds_writer_guid(&self) -> Result<String, String> {
+    pub fn dds_writer_guid(&self) -> Result<String, String> {
         get_guid(&self.dds_writer)
     }
 
-    pub(crate) fn add_remote_routed_writer(&mut self, admin_ke: OwnedKeyExpr) {
+    pub fn add_remote_routed_writer(&mut self, admin_ke: OwnedKeyExpr) {
         self.remote_routed_writers.insert(admin_ke);
     }
 
-    pub(crate) fn remove_remote_routed_writer(&mut self, admin_ke: &keyexpr) {
+    pub fn remove_remote_routed_writer(&mut self, admin_ke: &keyexpr) {
         self.remote_routed_writers.remove(admin_ke);
     }
 
     /// Remove all Writers reference with admin keyexpr containing "sub_ke"
-    pub(crate) fn remove_remote_routed_writers_containing(&mut self, sub_ke: &str) {
+    pub fn remove_remote_routed_writers_containing(&mut self, sub_ke: &str) {
         self.remote_routed_writers.retain(|s| !s.contains(sub_ke));
     }
 
-    pub(crate) fn has_remote_routed_writer(&self) -> bool {
+    pub fn has_remote_routed_writer(&self) -> bool {
         !self.remote_routed_writers.is_empty()
     }
 
-    pub(crate) fn is_routing_remote_writer(&self, entity_key: &str) -> bool {
+    pub fn is_routing_remote_writer(&self, entity_key: &str) -> bool {
         self.remote_routed_writers
             .iter()
             .any(|s| s.contains(entity_key))
     }
 
-    pub(crate) fn add_local_routed_reader(&mut self, entity_key: String) {
+    pub fn add_local_routed_reader(&mut self, entity_key: String) {
         self.local_routed_readers.insert(entity_key);
     }
 
-    pub(crate) fn remove_local_routed_reader(&mut self, entity_key: &str) {
+    pub fn remove_local_routed_reader(&mut self, entity_key: &str) {
         self.local_routed_readers.remove(entity_key);
     }
 
-    pub(crate) fn has_local_routed_reader(&self) -> bool {
+    pub fn has_local_routed_reader(&self) -> bool {
         !self.local_routed_readers.is_empty()
     }
 }

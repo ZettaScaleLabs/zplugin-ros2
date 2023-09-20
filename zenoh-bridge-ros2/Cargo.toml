@@ -20,7 +20,7 @@ repository = { workspace = true }
 homepage = { workspace = true }
 license = { workspace = true }
 categories = ["network-programming"]
-description = "Zenoh bridge for ROS2 and DDS in general"
+description = "Zenoh bridge for ROS 2 and DDS in general"
 
 [features]
 dds_shm = ["zenoh-plugin-ros2/dds_shm"]

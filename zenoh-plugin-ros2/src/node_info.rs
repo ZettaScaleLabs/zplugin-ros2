@@ -15,10 +15,12 @@ use serde::ser::SerializeSeq;
 use serde::{Serialize, Serializer};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use zenoh::prelude::{keyexpr, KeyExpr};
 
 use crate::dds_discovery::DdsEntity;
 use crate::discovered_entities::ROS2DiscoveryEvent;
 use crate::gid::Gid;
+use crate::ke_for_sure;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct TopicPub {
@@ -30,8 +32,13 @@ pub struct TopicPub {
 }
 
 impl TopicPub {
-    pub fn create(name: String, typ: String, writer: Gid) -> TopicPub {
-        TopicPub { name, typ, writer }
+    pub fn create(name: String, typ: String, writer: Gid) -> Result<TopicPub, String> {
+        check_ros_name(&name)?;
+        Ok(TopicPub { name, typ, writer })
+    }
+
+    pub fn name_as_keyexpr(&self) -> &keyexpr {
+        ke_for_sure!(&self.name[1..])
     }
 }
 
@@ -52,8 +59,13 @@ pub struct TopicSub {
 }
 
 impl TopicSub {
-    pub fn create(name: String, typ: String, reader: Gid) -> TopicSub {
-        TopicSub { name, typ, reader }
+    pub fn create(name: String, typ: String, reader: Gid) -> Result<TopicSub, String> {
+        check_ros_name(&name)?;
+        Ok(TopicSub { name, typ, reader })
+    }
+
+    pub fn name_as_keyexpr(&self) -> &keyexpr {
+        ke_for_sure!(&self.name[1..])
     }
 }
 
@@ -98,12 +110,17 @@ pub struct ServiceSrv {
 }
 
 impl ServiceSrv {
-    pub fn create(name: String, typ: String) -> ServiceSrv {
-        ServiceSrv {
+    pub fn create(name: String, typ: String) -> Result<ServiceSrv, String> {
+        check_ros_name(&name)?;
+        Ok(ServiceSrv {
             name,
             typ,
             entities: ServiceSrvEntities::default(),
-        }
+        })
+    }
+
+    pub fn name_as_keyexpr(&self) -> &keyexpr {
+        ke_for_sure!(&self.name[1..])
     }
 
     #[inline]
@@ -153,12 +170,17 @@ pub struct ServiceCli {
 }
 
 impl ServiceCli {
-    pub fn create(name: String, typ: String) -> ServiceCli {
-        ServiceCli {
+    pub fn create(name: String, typ: String) -> Result<ServiceCli, String> {
+        check_ros_name(&name)?;
+        Ok(ServiceCli {
             name,
             typ,
             entities: ServiceCliEntities::default(),
-        }
+        })
+    }
+
+    pub fn name_as_keyexpr(&self) -> &keyexpr {
+        ke_for_sure!(&self.name[1..])
     }
 
     #[inline]
@@ -219,12 +241,17 @@ pub struct ActionSrv {
 }
 
 impl ActionSrv {
-    pub fn create(name: String, typ: String) -> ActionSrv {
-        ActionSrv {
+    pub fn create(name: String, typ: String) -> Result<ActionSrv, String> {
+        check_ros_name(&name)?;
+        Ok(ActionSrv {
             name,
             typ,
             entities: ActionSrvEntities::default(),
-        }
+        })
+    }
+
+    pub fn name_as_keyexpr(&self) -> &keyexpr {
+        ke_for_sure!(&self.name[1..])
     }
 
     #[inline]
@@ -285,12 +312,17 @@ pub struct ActionCli {
 }
 
 impl ActionCli {
-    pub fn create(name: String, typ: String) -> ActionCli {
-        ActionCli {
+    pub fn create(name: String, typ: String) -> Result<ActionCli, String> {
+        check_ros_name(&name)?;
+        Ok(ActionCli {
             name,
             typ,
             entities: ActionCliEntities::default(),
-        }
+        })
+    }
+
+    pub fn name_as_keyexpr(&self) -> &keyexpr {
+        ke_for_sure!(&self.name[1..])
     }
 
     #[inline]
@@ -327,15 +359,9 @@ pub struct NodeInfo {
         serialize_with = "serialize_hashmap_values"
     )]
     pub service_cli: HashMap<String, ServiceCli>,
-    #[serde(
-        rename = "action_servers",
-        serialize_with = "serialize_hashmap_values"
-    )]
+    #[serde(rename = "action_servers", serialize_with = "serialize_hashmap_values")]
     pub action_srv: HashMap<String, ActionSrv>,
-    #[serde(
-        rename = "action_clients",
-        serialize_with = "serialize_hashmap_values"
-    )]
+    #[serde(rename = "action_clients", serialize_with = "serialize_hashmap_values")]
     pub action_cli: HashMap<String, ActionCli>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub undiscovered_reader: Vec<Gid>,
@@ -344,6 +370,12 @@ pub struct NodeInfo {
 }
 
 impl std::fmt::Display for NodeInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.fullname)
+    }
+}
+
+impl std::fmt::Debug for NodeInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -356,15 +388,20 @@ impl std::fmt::Display for NodeInfo {
 }
 
 impl NodeInfo {
-    pub fn create(namespace: String, node_name: String, participant: Gid) -> NodeInfo {
-        // if
+    pub fn create(
+        namespace: String,
+        node_name: String,
+        participant: Gid,
+    ) -> Result<NodeInfo, String> {
+        // fullname is "namespace/node_name", but is namespace is "/" avoid "//" as prefix
         let (fullname, node_name_idx) = if namespace == "/" {
             (format!("/{node_name}"), 1)
         } else {
             (format!("{namespace}/{node_name}"), namespace.len() + 1)
         };
+        check_ros_name(&fullname)?;
 
-        NodeInfo {
+        Ok(NodeInfo {
             fullname,
             node_name_idx,
             participant,
@@ -376,7 +413,11 @@ impl NodeInfo {
             action_cli: HashMap::new(),
             undiscovered_reader: Vec::new(),
             undiscovered_writer: Vec::new(),
-        }
+        })
+    }
+
+    pub fn fullname_as_keyexpr(&self) -> &keyexpr {
+        ke_for_sure!(&self.fullname[1..])
     }
 
     pub fn namespace(&self) -> &str {
@@ -459,7 +500,7 @@ impl NodeInfo {
             ),
             _ => {
                 log::warn!(
-                    r#"ROS2 Node {self} uses unexpected DDS topic "{}" - ignored"#,
+                    r#"ROS Node {self} uses unexpected DDS topic "{}" - ignored"#,
                     entity.topic_name
                 );
                 None
@@ -533,7 +574,7 @@ impl NodeInfo {
             ),
             _ => {
                 log::warn!(
-                    r#"ROS2 Node {self} uses unexpected DDS topic "{}" - ignored"#,
+                    r#"ROS Node {self} uses unexpected DDS topic "{}" - ignored"#,
                     entity.topic_name
                 );
                 None
@@ -550,14 +591,18 @@ impl NodeInfo {
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredTopicPub;
         match self.topic_pub.entry(name.into()) {
-            Entry::Vacant(e) => {
-                let tpub = e.insert(TopicPub {
-                    name: name.into(),
-                    typ: typ,
-                    writer: *writer,
-                });
-                Some(DiscoveredTopicPub(self.fullname.clone(), tpub.clone()))
-            }
+            Entry::Vacant(e) => match TopicPub::create(name.into(), typ, *writer) {
+                Ok(t) => {
+                    e.insert(t.clone());
+                    Some(DiscoveredTopicPub(self.fullname.clone(), t))
+                }
+                Err(e) => {
+                    log::error!(
+                        "ROS Node {self} declared an incompatible Publisher: {e} - ignored"
+                    );
+                    None
+                }
+            },
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
                 let mut result = None;
@@ -590,14 +635,18 @@ impl NodeInfo {
     ) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::DiscoveredTopicSub;
         match self.topic_sub.entry(name.into()) {
-            Entry::Vacant(e) => {
-                let tsub = e.insert(TopicSub {
-                    name: name.into(),
-                    typ: typ,
-                    reader: *reader,
-                });
-                Some(DiscoveredTopicSub(self.fullname.clone(), tsub.clone()))
-            }
+            Entry::Vacant(e) => match TopicSub::create(name.into(), typ, *reader) {
+                Ok(t) => {
+                    e.insert(t.clone());
+                    Some(DiscoveredTopicSub(self.fullname.clone(), t))
+                }
+                Err(e) => {
+                    log::error!(
+                        "ROS Node {self} declared an incompatible Subscriber: {e} - ignored"
+                    );
+                    None
+                }
+            },
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
                 let mut result = None;
@@ -631,9 +680,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredServiceSrv;
         match self.service_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ServiceSrv::create(name.into(), typ));
-                v.entities.req_reader = *reader;
-                None
+                match ServiceSrv::create(name.into(), typ) {
+                    Ok(mut s) => {
+                        s.entities.req_reader = *reader;
+                        e.insert(s);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Service Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -674,9 +730,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredServiceSrv;
         match self.service_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ServiceSrv::create(name.into(), typ));
-                v.entities.rep_writer = *writer;
-                None
+                match ServiceSrv::create(name.into(), typ) {
+                    Ok(mut s) => {
+                        s.entities.rep_writer = *writer;
+                        e.insert(s);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Service Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -717,9 +780,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredServiceCli;
         match self.service_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ServiceCli::create(name.into(), typ));
-                v.entities.rep_reader = *reader;
-                None
+                match ServiceCli::create(name.into(), typ) {
+                    Ok(mut s) => {
+                        s.entities.rep_reader = *reader;
+                        e.insert(s);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Service Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -760,9 +830,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredServiceCli;
         match self.service_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ServiceCli::create(name.into(), typ));
-                v.entities.req_writer = *writer;
-                None
+                match ServiceCli::create(name.into(), typ) {
+                    Ok(mut s) => {
+                        s.entities.req_writer = *writer;
+                        e.insert(s);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Service Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -803,9 +880,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ));
-                v.entities.send_goal.req_reader = *reader;
-                None
+                match ActionSrv::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.send_goal.req_reader = *reader;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -848,9 +932,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ));
-                v.entities.send_goal.rep_writer = *writer;
-                None
+                match ActionSrv::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.send_goal.rep_writer = *writer;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -894,9 +985,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), String::new()));
-                v.entities.cancel_goal.req_reader = *reader;
-                None
+                match ActionSrv::create(name.into(), String::new()) {
+                    Ok(mut a) => {
+                        a.entities.cancel_goal.req_reader = *reader;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -929,9 +1027,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), String::new()));
-                v.entities.cancel_goal.rep_writer = *writer;
-                None
+                match ActionSrv::create(name.into(), String::new()) {
+                    Ok(mut a) => {
+                        a.entities.cancel_goal.rep_writer = *writer;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -963,9 +1068,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ));
-                v.entities.get_result.req_reader = *reader;
-                None
+                match ActionSrv::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.get_result.req_reader = *reader;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1008,9 +1120,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ));
-                v.entities.get_result.rep_writer = *writer;
-                None
+                match ActionSrv::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.get_result.rep_writer = *writer;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1054,9 +1173,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), String::new()));
-                v.entities.status_writer = *writer;
-                None
+                match ActionSrv::create(name.into(), String::new()) {
+                    Ok(mut a) => {
+                        a.entities.status_writer = *writer;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1088,9 +1214,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionSrv;
         match self.action_srv.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionSrv::create(name.into(), typ));
-                v.entities.feedback_writer = *writer;
-                None
+                match ActionSrv::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.feedback_writer = *writer;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Server: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1133,9 +1266,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ));
-                v.entities.send_goal.rep_reader = *reader;
-                None
+                match ActionCli::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.send_goal.rep_reader = *reader;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1178,9 +1318,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ));
-                v.entities.send_goal.req_writer = *writer;
-                None
+                match ActionCli::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.send_goal.req_writer = *writer;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1224,9 +1371,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), String::new()));
-                v.entities.cancel_goal.rep_reader = *reader;
-                None
+                match ActionCli::create(name.into(), String::new()) {
+                    Ok(mut a) => {
+                        a.entities.cancel_goal.rep_reader = *reader;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1259,9 +1413,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), String::new()));
-                v.entities.cancel_goal.req_writer = *writer;
-                None
+                match ActionCli::create(name.into(), String::new()) {
+                    Ok(mut a) => {
+                        a.entities.cancel_goal.req_writer = *writer;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1293,9 +1454,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ));
-                v.entities.get_result.rep_reader = *reader;
-                None
+                match ActionCli::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.get_result.rep_reader = *reader;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1338,9 +1506,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ));
-                v.entities.get_result.req_writer = *writer;
-                None
+                match ActionCli::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.get_result.req_writer = *writer;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1384,9 +1559,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), String::new()));
-                v.entities.status_reader = *reader;
-                None
+                match ActionCli::create(name.into(), String::new()) {
+                    Ok(mut a) => {
+                        a.entities.status_reader = *reader;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1418,9 +1600,16 @@ impl NodeInfo {
         use ROS2DiscoveryEvent::DiscoveredActionCli;
         match self.action_cli.entry(name.into()) {
             Entry::Vacant(e) => {
-                let v = e.insert(ActionCli::create(name.into(), typ));
-                v.entities.feedback_reader = *reader;
-                None
+                match ActionCli::create(name.into(), typ) {
+                    Ok(mut a) => {
+                        a.entities.feedback_reader = *reader;
+                        e.insert(a);
+                    }
+                    Err(e) => log::error!(
+                        "ROS Node {self} declared an incompatible Action Client: {e} - ignored"
+                    ),
+                }
+                None // discovery is not complete anyway
             }
             Entry::Occupied(mut e) => {
                 let v = e.get_mut();
@@ -1640,4 +1829,16 @@ fn dds_action_topic_to_ros(dds_topic: &str) -> String {
             .or(dds_topic.strip_suffix("_FeedbackMessage_"))
             .unwrap_or(dds_topic),
     )
+}
+
+// check if name is a ROS2 name: starting with '/' and useable as a key expression (removing 1st '/')
+#[inline]
+fn check_ros_name(name: &str) -> Result<(), String> {
+    if !name.starts_with('/') || KeyExpr::try_from("&(name[1..])").is_err() {
+        Err(format!(
+            "'{name}' cannot be converted as a Zenoh key expression"
+        ))
+    } else {
+        Ok(())
+    }
 }

@@ -20,7 +20,7 @@ repository = { workspace = true }
 homepage = { workspace = true }
 license = { workspace = true }
 categories = ["network-programming", "science::robotics"]
-description = "Zenoh plugin for ROS2 and DDS in general"
+description = "Zenoh plugin for ROS 2 and DDS in general"
 
 [lib]
 name = "zenoh_plugin_ros2"

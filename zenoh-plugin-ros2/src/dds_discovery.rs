@@ -41,7 +41,7 @@ pub struct TypeInfo {
 }
 
 impl TypeInfo {
-    pub(crate) unsafe fn new(ptr: *const dds_typeinfo_t) -> TypeInfo {
+    pub unsafe fn new(ptr: *const dds_typeinfo_t) -> TypeInfo {
         let ptr = ddsi_typeinfo_dup(ptr);
         TypeInfo { ptr }
     }
@@ -65,7 +65,7 @@ pub struct DdsEntity {
     pub topic_name: String,
     pub type_name: String,
     #[serde(skip)]
-    pub type_info: Option<TypeInfo>,
+    pub type_info: Option<Arc<TypeInfo>>,
     pub keyless: bool,
     pub qos: Qos,
 }
@@ -117,7 +117,7 @@ impl IoxChunk {
     }
 }
 
-pub(crate) struct DDSRawSample {
+pub struct DDSRawSample {
     sdref: *mut ddsi_serdata,
     data: ddsrt_iovec_t,
     #[cfg(feature = "dds_shm")]
@@ -125,7 +125,7 @@ pub(crate) struct DDSRawSample {
 }
 
 impl DDSRawSample {
-    pub(crate) unsafe fn create(serdata: *const ddsi_serdata) -> DDSRawSample {
+    pub unsafe fn create(serdata: *const ddsi_serdata) -> DDSRawSample {
         let mut sdref: *mut ddsi_serdata = std::ptr::null_mut();
         let mut data = ddsrt_iovec_t {
             iov_base: std::ptr::null_mut(),
@@ -188,7 +188,7 @@ impl DDSRawSample {
         }
     }
 
-    pub(crate) fn payload_as_slice(&self) -> &[u8] {
+    pub fn payload_as_slice(&self) -> &[u8] {
         unsafe {
             #[cfg(feature = "dds_shm")]
             {
@@ -200,7 +200,7 @@ impl DDSRawSample {
         }
     }
 
-    pub(crate) fn hex_encode(&self) -> String {
+    pub fn hex_encode(&self) -> String {
         let mut encoded = String::new();
         let data_encoded = hex::encode(self.data_as_slice());
         encoded.push_str(data_encoded.as_str());
@@ -343,7 +343,7 @@ unsafe extern "C" fn on_data(dr: dds_entity_t, arg: *mut std::os::raw::c_void) {
 
                     let type_info = match ret {
                         0 => match type_info.is_null() {
-                            false => Some(TypeInfo::new(type_info)),
+                            false => Some(Arc::new(TypeInfo::new(type_info))),
                             true => {
                                 log::trace!(
                                     "Type information not available for type {}",
@@ -450,7 +450,7 @@ fn send_discovery_event(sender: &Sender<DDSDiscoveryEvent>, event: DDSDiscoveryE
     }
 }
 
-pub(crate) fn run_discovery(dp: dds_entity_t, tx: Sender<DDSDiscoveryEvent>) {
+pub fn run_discovery(dp: dds_entity_t, tx: Sender<DDSDiscoveryEvent>) {
     unsafe {
         let ptx = Box::new((DiscoveryType::Publication, tx.clone()));
         let stx = Box::new((DiscoveryType::Subscription, tx.clone()));
@@ -523,11 +523,11 @@ unsafe extern "C" fn data_forwarder_listener(dr: dds_entity_t, arg: *mut std::os
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn create_forwarding_dds_reader(
+pub fn create_forwarding_dds_reader(
     dp: dds_entity_t,
     topic_name: String,
     type_name: String,
-    type_info: &Option<TypeInfo>,
+    type_info: &Option<Arc<TypeInfo>>,
     keyless: bool,
     mut qos: Qos,
     z_key: KeyExpr,
@@ -629,7 +629,7 @@ unsafe fn create_topic(
     dp: dds_entity_t,
     topic_name: &str,
     type_name: &str,
-    type_info: &Option<TypeInfo>,
+    type_info: &Option<Arc<TypeInfo>>,
     keyless: bool,
 ) -> dds_entity_t {
     let cton = CString::new(topic_name.to_owned()).unwrap().into_raw();

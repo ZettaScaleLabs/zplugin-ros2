@@ -35,7 +35,9 @@ pub struct Config {
     #[serde(default = "default_domain")]
     pub domain: u32,
     #[serde(default = "default_localhost_only")]
-    pub localhost_only: bool,
+    pub ros_localhost_only: bool,
+    #[serde(default, flatten)]
+    pub allowance: Option<Allowance>,
     #[serde(default)]
     #[cfg(feature = "dds_shm")]
     pub shm_enabled: bool,
@@ -44,8 +46,8 @@ pub struct Config {
         deserialize_with = "deserialize_duration"
     )]
     pub queries_timeout: Duration,
-    #[serde(default, flatten)]
-    pub allowance: Option<Allowance>,
+    #[serde(default = "default_reliable_routes_blocking")]
+    pub reliable_routes_blocking: bool,
     #[serde(default)]
     __required__: bool,
     #[serde(default, deserialize_with = "deserialize_paths")]
@@ -67,18 +69,12 @@ impl Allowance {
             Allow(r) => r
                 .publishers
                 .as_ref()
-                .map(|re| {
-                    println!("-- pub is_match({name}):{}", re.is_match(name));
-                    re.is_match(name)
-                })
+                .map(|re| re.is_match(name))
                 .unwrap_or(false),
             Deny(r) => r
                 .publishers
                 .as_ref()
-                .map(|re| {
-                    println!("-- pub ! is_match({name}):{}", re.is_match(name));
-                    !re.is_match(name)
-                })
+                .map(|re| !re.is_match(name))
                 .unwrap_or(true),
         }
     }
@@ -248,6 +244,10 @@ where
         }
     }
     deserializer.deserialize_any(V)
+}
+
+fn default_reliable_routes_blocking() -> bool {
+    DEFAULT_RELIABLE_ROUTES_BLOCKING
 }
 
 fn default_localhost_only() -> bool {
