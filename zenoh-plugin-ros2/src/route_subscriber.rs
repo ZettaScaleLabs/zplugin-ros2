@@ -226,37 +226,50 @@ impl RouteSubscriber<'_> {
         }
     }
 
+    #[inline]
     pub fn dds_writer_guid(&self) -> Result<String, String> {
         get_guid(&self.dds_writer)
     }
 
+    #[inline]
     pub fn add_remote_route(&mut self, admin_ke: OwnedKeyExpr) {
         self.remote_routes.insert(admin_ke);
     }
 
+    #[inline]
     pub fn remove_remote_route(&mut self, admin_ke: &keyexpr) {
         self.remote_routes.remove(admin_ke);
     }
 
     /// Remove all Writers reference with admin keyexpr containing "sub_ke"
+    #[inline]
     pub fn remove_remote_routes(&mut self, sub_ke: &str) {
         self.remote_routes.retain(|s| !s.contains(sub_ke));
     }
 
+    #[inline]
     pub fn is_serving_remote_route(&self) -> bool {
         !self.remote_routes.is_empty()
     }
 
+    #[inline]
     pub fn add_local_node(&mut self, entity_key: String) {
         self.local_nodes.insert(entity_key);
     }
 
+    #[inline]
     pub fn remove_local_node(&mut self, entity_key: &str) {
         self.local_nodes.remove(entity_key);
     }
 
+    #[inline]
     pub fn is_serving_local_node(&self) -> bool {
         !self.local_nodes.is_empty()
+    }
+
+    #[inline]
+    pub fn is_unused(&self) -> bool {
+        !self.is_serving_local_node() && !self.is_serving_remote_route()
     }
 }
 

@@ -24,6 +24,7 @@ use crate::route_publisher::RoutePublisher;
 use crate::route_subscriber::RouteSubscriber;
 use cyclors::dds_entity_t;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -99,13 +100,34 @@ impl<'a> RoutesMgr<'a> {
                 self.update_route_publisher(&node, &iface).await?;
             }
             UndiscoveredTopicPub(node, iface) => {
-                log::info!("... TODO: delete Publisher route for {}", iface.name);
+                if let Entry::Occupied(mut entry) = self.routes_publishers.entry(iface.name.clone())
+                {
+                    let route = entry.get_mut();
+                    route.local_nodes.remove(&node);
+                    if route.is_unused() {
+                        log::info!("{route} unused - remove it");
+                        self.admin_space
+                            .remove(&(*KE_PREFIX_ROUTE_PUBLISHER / iface.name_as_keyexpr()));
+                        entry.remove();
+                    }
+                }
             }
             DiscoveredTopicSub(node, iface) => {
                 self.update_route_subscriber(&node, &iface).await?;
             }
             UndiscoveredTopicSub(node, iface) => {
-                log::info!("... TODO: delete Subscriber route for {}", iface.name);
+                if let Entry::Occupied(mut entry) =
+                    self.routes_subscribers.entry(iface.name.clone())
+                {
+                    let route = entry.get_mut();
+                    route.local_nodes.remove(&node);
+                    if route.is_unused() {
+                        log::info!("{route} unused - remove it");
+                        self.admin_space
+                            .remove(&(*KE_PREFIX_ROUTE_SUBSCRIBER / iface.name_as_keyexpr()));
+                        entry.remove();
+                    }
+                }
             }
             DiscoveredServiceSrv(node, iface) => {
                 log::info!("... TODO: create Service Server route for {}", iface.name);

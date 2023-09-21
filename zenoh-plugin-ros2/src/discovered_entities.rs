@@ -32,7 +32,6 @@ zenoh::kedefine!(
     pub(crate) ke_admin_node: "node/${node_id:**}",
 );
 
-
 #[derive(Default)]
 pub struct DiscoveredEntities {
     participants: HashMap<Gid, DdsParticipant>,
@@ -100,11 +99,8 @@ impl DiscoveredEntities {
             for (name, mut node) in nodes {
                 log::info!("Undiscovered ROS Node {}", name);
                 self.admin_space.remove(
-                    &zenoh::keformat!(
-                        ke_admin_node::formatter(),
-                        node_id = node.id_as_keyexpr(),
-                    )
-                    .unwrap(),
+                    &zenoh::keformat!(ke_admin_node::formatter(), node_id = node.id_as_keyexpr(),)
+                        .unwrap(),
                 );
                 // return undiscovery events for this node
                 events.append(&mut node.remove_all_entities());
@@ -272,11 +268,8 @@ impl DiscoveredEntities {
             if !ros_info.node_entities_info_seq.contains_key(name) {
                 log::info!("Undiscovered ROS Node {}", name);
                 admin_space.remove(
-                    &zenoh::keformat!(
-                        ke_admin_node::formatter(),
-                        node_id = node.id_as_keyexpr(),
-                    )
-                    .unwrap(),
+                    &zenoh::keformat!(ke_admin_node::formatter(), node_id = node.id_as_keyexpr(),)
+                        .unwrap(),
                 );
                 // return undiscovery events for this node
                 events.append(&mut node.remove_all_entities());
