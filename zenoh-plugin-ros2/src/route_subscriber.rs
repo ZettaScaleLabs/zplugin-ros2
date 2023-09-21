@@ -19,15 +19,13 @@ use cyclors::{
 use serde::{Serialize, Serializer};
 use std::collections::HashSet;
 use std::convert::TryInto;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::{ffi::CStr, fmt, sync::atomic::AtomicI32, time::Duration};
+use std::{ffi::CStr, fmt, time::Duration};
 use zenoh::prelude::*;
 use zenoh::query::ReplyKeyExpr;
 use zenoh::{prelude::r#async::AsyncResolve, subscriber::Subscriber};
 use zenoh_ext::{FetchingSubscriber, SubscriberBuilderExt};
 
-use crate::ROS2PluginRuntime;
 use crate::{
     dds_discovery::*, qos::Qos, vec_into_raw_parts, Config, KE_ANY_1_SEGMENT, KE_PREFIX_PUB_CACHE,
     LOG_PAYLOAD,
@@ -47,29 +45,34 @@ impl ZSubscriber<'_> {
     }
 }
 
+fn serialize_zsubscriber<S>(zsub: &ZSubscriber, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_str(zsub.key_expr().as_str())
+}
+
 // a route from Zenoh to DDS
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Serialize)]
 pub struct RouteSubscriber<'a> {
+    // the ROS2 Subscriber name
+    name: String,
+    // the ROS2 type
+    typ: String,
     // the zenoh session
     #[serde(skip)]
     zenoh_session: &'a Arc<Session>,
     // the zenoh subscriber receiving data to be re-published by the DDS Writer
-    #[serde(skip)]
+    #[serde(serialize_with = "serialize_zsubscriber")]
     zenoh_subscriber: ZSubscriber<'a>,
-    // the DDS topic name for re-publication
-    topic_name: String,
-    // the DDS topic type
-    topic_type: String,
-    // is DDS topic keyess
-    keyless: bool,
     // the local DDS Writer created to serve the route (i.e. re-publish to DDS data coming from zenoh)
     #[serde(serialize_with = "serialize_entity_guid")]
     dds_writer: dds_entity_t,
-    // the list of remote writers served by this route (admin key expr)
-    remote_routed_writers: HashSet<OwnedKeyExpr>,
-    // the list of local readers served by this route (entity keys)
-    local_routed_readers: HashSet<String>,
+    // the list of remote routes served by this route (admin key expr)
+    remote_routes: HashSet<OwnedKeyExpr>,
+    // the list of nodes served by this route
+    pub(crate) local_nodes: HashSet<String>,
 }
 
 impl Drop for RouteSubscriber<'_> {
@@ -84,15 +87,18 @@ impl fmt::Display for RouteSubscriber<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Route Zenoh->DDS ({} -> {})",
+            "Route Subscriber ({} -> {})",
             self.zenoh_subscriber.key_expr(),
-            self.topic_name
+            self.name
         )
     }
 }
 
 impl RouteSubscriber<'_> {
+    #[allow(clippy::too_many_arguments)]
     pub async fn create<'a, 'b>(
+        ros2_name: String,
+        ros2_type: String,
         config: &Config,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
@@ -103,13 +109,7 @@ impl RouteSubscriber<'_> {
         keyless: bool,
         writer_qos: Qos,
     ) -> Result<RouteSubscriber<'a>, String> {
-        log::debug!(
-            "Route Zenoh->DDS ({} -> {}): creation with topic_type={} querying_subscriber={}",
-            ke,
-            topic_name,
-            topic_type,
-            querying_subscriber
-        );
+        log::debug!("Route Subscriber ({ke} -> {ros2_name}): creation with type {ros2_type} (querying_subscriber:{querying_subscriber})");
 
         let dds_writer = create_forwarding_dds_writer(
             participant,
@@ -130,9 +130,9 @@ impl RouteSubscriber<'_> {
             // query all PublicationCaches on "<KE_PREFIX_PUB_CACHE>/*/<routing_keyexpr>"
             let query_selector: Selector = (*KE_PREFIX_PUB_CACHE / *KE_ANY_1_SEGMENT / &ke).into();
             log::debug!(
-                    "Route Zenoh->DDS ({} -> {}): query historical data from everybody for TRANSIENT_LOCAL Reader on {}",
+                    "Route Subscriber ({} -> {}): query historical data from everybody for TRANSIENT_LOCAL Reader on {}",
                     ke,
-                    topic_name,
+                    ros2_name,
                     query_selector
                 );
 
@@ -149,7 +149,7 @@ impl RouteSubscriber<'_> {
                 .await
                 .map_err(|e| {
                     format!(
-                        "Route Zenoh->DDS ({ke} -> {topic_name}): failed to create FetchingSubscriber: {e}"
+                        "Route Subscriber ({ke} -> {ros2_name}): failed to create FetchingSubscriber: {e}"
                     )
                 })?;
             ZSubscriber::FetchingSubscriber(sub)
@@ -163,21 +163,20 @@ impl RouteSubscriber<'_> {
                 .await
                 .map_err(|e| {
                     format!(
-                        "Route Zenoh->DDS ({ke} -> {topic_name}): failed to create Subscriber: {e}"
+                        "Route Subscriber ({ke} -> {ros2_name}): failed to create Subscriber: {e}"
                     )
                 })?;
             ZSubscriber::Subscriber(sub)
         };
 
         Ok(RouteSubscriber {
+            name: ros2_name,
+            typ: ros2_type,
             zenoh_session: zsession,
             zenoh_subscriber,
-            topic_name,
-            topic_type,
-            keyless,
             dds_writer,
-            remote_routed_writers: HashSet::new(),
-            local_routed_readers: HashSet::new(),
+            remote_routes: HashSet::new(),
+            local_nodes: HashSet::new(),
         })
     }
 
@@ -193,9 +192,9 @@ impl RouteSubscriber<'_> {
         if let ZSubscriber::FetchingSubscriber(sub) = &mut self.zenoh_subscriber {
             let s = selector();
             log::debug!(
-                "Route Zenoh->DDS ({} -> {}): query historical publications from {}",
+                "Route Subscriber ({} -> {}): query historical publications from {}",
                 sub.key_expr(),
-                self.topic_name,
+                self.name,
                 s
             );
             if let Err(e) = sub
@@ -231,53 +230,47 @@ impl RouteSubscriber<'_> {
         get_guid(&self.dds_writer)
     }
 
-    pub fn add_remote_routed_writer(&mut self, admin_ke: OwnedKeyExpr) {
-        self.remote_routed_writers.insert(admin_ke);
+    pub fn add_remote_route(&mut self, admin_ke: OwnedKeyExpr) {
+        self.remote_routes.insert(admin_ke);
     }
 
-    pub fn remove_remote_routed_writer(&mut self, admin_ke: &keyexpr) {
-        self.remote_routed_writers.remove(admin_ke);
+    pub fn remove_remote_route(&mut self, admin_ke: &keyexpr) {
+        self.remote_routes.remove(admin_ke);
     }
 
     /// Remove all Writers reference with admin keyexpr containing "sub_ke"
-    pub fn remove_remote_routed_writers_containing(&mut self, sub_ke: &str) {
-        self.remote_routed_writers.retain(|s| !s.contains(sub_ke));
+    pub fn remove_remote_routes(&mut self, sub_ke: &str) {
+        self.remote_routes.retain(|s| !s.contains(sub_ke));
     }
 
-    pub fn has_remote_routed_writer(&self) -> bool {
-        !self.remote_routed_writers.is_empty()
+    pub fn is_serving_remote_route(&self) -> bool {
+        !self.remote_routes.is_empty()
     }
 
-    pub fn is_routing_remote_writer(&self, entity_key: &str) -> bool {
-        self.remote_routed_writers
-            .iter()
-            .any(|s| s.contains(entity_key))
+    pub fn add_local_node(&mut self, entity_key: String) {
+        self.local_nodes.insert(entity_key);
     }
 
-    pub fn add_local_routed_reader(&mut self, entity_key: String) {
-        self.local_routed_readers.insert(entity_key);
+    pub fn remove_local_node(&mut self, entity_key: &str) {
+        self.local_nodes.remove(entity_key);
     }
 
-    pub fn remove_local_routed_reader(&mut self, entity_key: &str) {
-        self.local_routed_readers.remove(entity_key);
-    }
-
-    pub fn has_local_routed_reader(&self) -> bool {
-        !self.local_routed_readers.is_empty()
+    pub fn is_serving_local_node(&self) -> bool {
+        !self.local_nodes.is_empty()
     }
 }
 
 fn do_route_data(s: Sample, topic_name: &str, data_writer: dds_entity_t) {
     if *LOG_PAYLOAD {
         log::trace!(
-            "Route Zenoh->DDS ({} -> {}): routing data - payload: {:?}",
+            "Route Subscriber ({} -> {}): routing data - payload: {:?}",
             s.key_expr,
             &topic_name,
             s.value.payload
         );
     } else {
         log::trace!(
-            "Route Zenoh->DDS ({} -> {}): routing data",
+            "Route Subscriber ({} -> {}): routing data",
             s.key_expr,
             &topic_name
         );
@@ -296,7 +289,7 @@ fn do_route_data(s: Sample, topic_name: &str, data_writer: dds_entity_t) {
             Ok(s) => s,
             Err(_) => {
                 log::warn!(
-                    "Route Zenoh->DDS ({} -> {}): can't route data; excessive payload size ({})",
+                    "Route Subscriber ({} -> {}): can't route data; excessive payload size ({})",
                     s.key_expr,
                     topic_name,
                     len
@@ -314,7 +307,7 @@ fn do_route_data(s: Sample, topic_name: &str, data_writer: dds_entity_t) {
         let ret = dds_get_entity_sertype(data_writer, &mut sertype_ptr);
         if ret < 0 {
             log::warn!(
-                "Route Zenoh->DDS ({} -> {}): can't route data; sertype lookup failed ({})",
+                "Route Subscriber ({} -> {}): can't route data; sertype lookup failed ({})",
                 s.key_expr,
                 topic_name,
                 CStr::from_ptr(dds_strretcode(ret))

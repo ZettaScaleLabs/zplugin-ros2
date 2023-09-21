@@ -23,7 +23,7 @@ use std::os::raw;
 use std::slice;
 use std::sync::Arc;
 use std::time::Duration;
-use zenoh::buffers::{ZBuf, ZSlice};
+use zenoh::buffers::ZBuf;
 #[cfg(feature = "dds_shm")]
 use zenoh::buffers::{ZBuf, ZSlice};
 use zenoh::prelude::*;

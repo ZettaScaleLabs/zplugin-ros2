@@ -14,7 +14,7 @@
 
 use cyclors::qos::{HistoryKind, Qos};
 use cyclors::{dds_entity_t, DDS_LENGTH_UNLIMITED};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashSet, fmt};
@@ -22,8 +22,7 @@ use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
 use zenoh_ext::{PublicationCache, SessionExt};
 
-use crate::gid::Gid;
-use crate::{dds_discovery::*, qos_helpers::*, Config, ROS2PluginRuntime, KE_PREFIX_PUB_CACHE};
+use crate::{dds_discovery::*, qos_helpers::*, Config, KE_PREFIX_PUB_CACHE};
 
 enum ZPublisher<'a> {
     Publisher(KeyExpr<'a>),
@@ -39,26 +38,31 @@ impl ZPublisher<'_> {
     }
 }
 
+fn serialize_zpublisher<S>(zpub: &ZPublisher, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_str(zpub.key_expr().as_str())
+}
+
 // a route from DDS to Zenoh
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Serialize)]
 pub struct RoutePublisher<'a> {
+    // the ROS2 Publisher name
+    name: String,
+    // the ROS2 type
+    typ: String,
     // the local DDS Reader created to serve the route (i.e. re-publish to zenoh data coming from DDS)
     #[serde(serialize_with = "serialize_entity_guid")]
     dds_reader: dds_entity_t,
-    // the DDS topic name to read on
-    topic_name: String,
-    // the DDS topic type
-    topic_type: String,
-    // is DDS topic keyess
-    keyless: bool,
     // the zenoh publisher used to re-publish to zenoh the data received by the DDS Reader
-    #[serde(skip)]
+    #[serde(serialize_with = "serialize_zpublisher")]
     zenoh_publisher: ZPublisher<'a>,
-    // the list of remote writers served by this route (admin key expr)
-    remote_routed_readers: HashSet<OwnedKeyExpr>,
-    // the list of local readers served by this route
-    local_routed_writers: HashSet<Gid>,
+    // the list of remote routes served by this route (admin key expr)
+    remote_routes: HashSet<OwnedKeyExpr>,
+    // the list of nodes served by this route
+    pub(crate) local_nodes: HashSet<String>,
 }
 
 impl Drop for RoutePublisher<'_> {
@@ -73,8 +77,8 @@ impl fmt::Display for RoutePublisher<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Route DDS->Zenoh ({} -> {})",
-            self.topic_name,
+            "Route Publisher ({} -> {})",
+            self.name,
             self.zenoh_publisher.key_expr()
         )
     }
@@ -83,6 +87,8 @@ impl fmt::Display for RoutePublisher<'_> {
 impl RoutePublisher<'_> {
     #[allow(clippy::too_many_arguments)]
     pub async fn create<'a>(
+        ros2_name: String,
+        ros2_type: String,
         config: &Config,
         plugin_id: &keyexpr,
         zsession: &'a Arc<Session>,
@@ -95,12 +101,7 @@ impl RoutePublisher<'_> {
         ke: OwnedKeyExpr,
         congestion_ctrl: CongestionControl,
     ) -> Result<RoutePublisher<'a>, String> {
-        log::debug!(
-            "Route DDS->Zenoh ({} -> {}): creation with topic_type={}",
-            topic_name,
-            ke,
-            topic_type
-        );
+        log::debug!("Route Publisher ({ros2_name} -> {ke}): creation with type {ros2_type}");
 
         // declare the zenoh key expression
         let declared_ke = zsession
@@ -108,7 +109,7 @@ impl RoutePublisher<'_> {
             .res()
             .await
             .map_err(|e| {
-                format!("Route Zenoh->DDS ({topic_name} -> {ke}): failed to declare KeyExpr: {e}")
+                format!("Route Publisher ({ros2_name} -> {ke}): failed to declare KeyExpr: {e}")
             })?;
 
         // declare the zenoh Publisher
@@ -183,13 +184,12 @@ impl RoutePublisher<'_> {
         )?;
 
         Ok(RoutePublisher {
+            name: ros2_name,
+            typ: ros2_type,
             dds_reader,
-            topic_name,
-            topic_type,
-            keyless,
             zenoh_publisher,
-            remote_routed_readers: HashSet::new(),
-            local_routed_writers: HashSet::new(),
+            remote_routes: HashSet::new(),
+            local_nodes: HashSet::new(),
         })
     }
 
@@ -197,39 +197,33 @@ impl RoutePublisher<'_> {
         get_guid(&self.dds_reader)
     }
 
-    pub fn add_remote_routed_reader(&mut self, admin_ke: OwnedKeyExpr) {
-        self.remote_routed_readers.insert(admin_ke);
+    pub fn add_remote_route(&mut self, admin_ke: OwnedKeyExpr) {
+        self.remote_routes.insert(admin_ke);
     }
 
-    pub fn remove_remote_routed_reader(&mut self, admin_ke: &keyexpr) {
-        self.remote_routed_readers.remove(admin_ke);
+    pub fn remove_remote_route(&mut self, admin_ke: &keyexpr) {
+        self.remote_routes.remove(admin_ke);
     }
 
-    /// Remove all Readers reference with admin keyexpr containing "sub_ke"
-    pub fn remove_remote_routed_readers_containing(&mut self, sub_ke: &str) {
-        self.remote_routed_readers.retain(|s| !s.contains(sub_ke));
+    /// Remove all routes reference with admin keyexpr containing "sub_ke"
+    pub fn remove_remote_routes(&mut self, sub_ke: &str) {
+        self.remote_routes.retain(|s| !s.contains(sub_ke));
     }
 
-    pub fn has_remote_routed_reader(&self) -> bool {
-        !self.remote_routed_readers.is_empty()
+    pub fn is_serving_remote_route(&self) -> bool {
+        !self.remote_routes.is_empty()
     }
 
-    pub fn is_routing_remote_reader(&self, entity_key: &str) -> bool {
-        self.remote_routed_readers
-            .iter()
-            .any(|s| s.contains(entity_key))
+    pub fn add_local_node(&mut self, node: String) {
+        self.local_nodes.insert(node);
     }
 
-    pub fn add_local_routed_writer(&mut self, entity_key: Gid) {
-        self.local_routed_writers.insert(entity_key);
+    pub fn remove_local_node(&mut self, node: &str) {
+        self.local_nodes.remove(node);
     }
 
-    pub fn remove_local_routed_writer(&mut self, entity_key: &Gid) {
-        self.local_routed_writers.remove(entity_key);
-    }
-
-    pub fn has_local_routed_writer(&self) -> bool {
-        !self.local_routed_writers.is_empty()
+    pub fn is_serving_local_node(&self) -> bool {
+        !self.local_nodes.is_empty()
     }
 }
 

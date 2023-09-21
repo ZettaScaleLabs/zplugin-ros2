@@ -12,22 +12,15 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use async_trait::async_trait;
-use cyclors::qos::{
-    DurabilityService, History, IgnoreLocal, IgnoreLocalKind, Qos, Reliability, ReliabilityKind,
-    DDS_100MS_DURATION, DDS_1S_DURATION,
-};
 use cyclors::*;
 use flume::{unbounded, Receiver, Sender};
 use futures::select;
 use git_version::git_version;
-use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::env;
 use std::mem::ManuallyDrop;
-use std::ops::RangeBounds;
 use std::sync::Arc;
 use zenoh::liveliness::LivelinessToken;
 use zenoh::plugins::{Plugin, RunningPluginTrait, Runtime, ZenohPlugin};
@@ -54,10 +47,8 @@ mod routes_mgr;
 use config::Config;
 use dds_discovery::*;
 
-use crate::config::Allowance;
 use crate::discovered_entities::ROS2DiscoveryEvent;
 use crate::discovery_mgr::DiscoveryMgr;
-use crate::qos_helpers::*;
 use crate::routes_mgr::RoutesMgr;
 
 pub const GIT_VERSION: &str = git_version!(prefix = "v", cargo_prefix = "v");
@@ -369,6 +360,8 @@ impl<'a> ROS2PluginRuntime<'a> {
                         self.treat_admin_query(&query).await;
                         // pass query to discovery_mgr
                         discovery_mgr.treat_admin_query(&query, &admin_keyexpr_prefix);
+                        // pass query to discovery_mgr
+                        routes_mgr.treat_admin_query(&query, &admin_keyexpr_prefix).await;
                     } else {
                         log::warn!("AdminSpace queryable was closed!");
                     }

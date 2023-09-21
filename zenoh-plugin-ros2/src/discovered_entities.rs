@@ -25,6 +25,14 @@ use crate::{
     ros_discovery::ParticipantEntitiesInfo,
 };
 
+zenoh::kedefine!(
+    pub(crate) ke_admin_participant: "dds/${pgid:*}",
+    pub(crate) ke_admin_writer: "dds/${pgid:*}/writer/${wgid:*}/${topic:**}",
+    pub(crate) ke_admin_reader: "dds/${pgid:*}/reader/${wgid:*}/${topic:**}",
+    pub(crate) ke_admin_node: "node/${node_id:**}",
+);
+
+
 #[derive(Default)]
 pub struct DiscoveredEntities {
     participants: HashMap<Gid, DdsParticipant>,
@@ -41,19 +49,19 @@ impl Debug for DiscoveredEntities {
             f,
             "participants: {:?}\n",
             self.participants.keys().collect::<Vec<&Gid>>()
-        );
+        )?;
         write!(
             f,
             "writers: {:?}\n",
             self.writers.keys().collect::<Vec<&Gid>>()
-        );
+        )?;
         write!(
             f,
             "readers: {:?}\n",
             self.readers.keys().collect::<Vec<&Gid>>()
-        );
-        write!(f, "ros_participant_info: {:?}\n", self.ros_participant_info);
-        write!(f, "nodes_info: {:?}\n", self.nodes_info);
+        )?;
+        write!(f, "ros_participant_info: {:?}\n", self.ros_participant_info)?;
+        write!(f, "nodes_info: {:?}\n", self.nodes_info)?;
         write!(
             f,
             "admin_space: {:?}\n",
@@ -69,13 +77,6 @@ enum EntityRef {
     Reader(Gid),
     Node(Gid, String),
 }
-
-zenoh::kedefine!(
-    pub(crate) ke_admin_participant: "dds/${pgid:*}",
-    pub(crate) ke_admin_writer: "dds/${pgid:*}/writer/${wgid:*}/${topic:**}",
-    pub(crate) ke_admin_reader: "dds/${pgid:*}/reader/${wgid:*}/${topic:**}",
-    pub(crate) ke_admin_node: "node/${pgid:*}/${fullname:**}",
-);
 
 impl DiscoveredEntities {
     #[inline]
@@ -101,8 +102,7 @@ impl DiscoveredEntities {
                 self.admin_space.remove(
                     &zenoh::keformat!(
                         ke_admin_node::formatter(),
-                        pgid = gid,
-                        fullname = node.fullname_as_keyexpr(),
+                        node_id = node.id_as_keyexpr(),
                     )
                     .unwrap(),
                 );
@@ -274,8 +274,7 @@ impl DiscoveredEntities {
                 admin_space.remove(
                     &zenoh::keformat!(
                         ke_admin_node::formatter(),
-                        pgid = ros_info.gid,
-                        fullname = node.fullname_as_keyexpr(),
+                        node_id = node.id_as_keyexpr(),
                     )
                     .unwrap(),
                 );
@@ -297,17 +296,16 @@ impl DiscoveredEntities {
                     ros_node_info.node_name.clone(),
                     ros_info.gid,
                 ) {
-                    Ok(node_info) => {
+                    Ok(node) => {
                         self.admin_space.insert(
                             zenoh::keformat!(
                                 ke_admin_node::formatter(),
-                                pgid = ros_info.gid,
-                                fullname = node_info.fullname_as_keyexpr(),
+                                node_id = node.id_as_keyexpr(),
                             )
                             .unwrap(),
-                            EntityRef::Node(ros_info.gid, node_info.fullname.clone()),
+                            EntityRef::Node(ros_info.gid, node.fullname().to_string()),
                         );
-                        nodes_map.insert(node_info.fullname.clone(), node_info);
+                        nodes_map.insert(node.fullname().to_string(), node);
                     }
                     Err(e) => {
                         log::warn!("ROS Node has incompatible name: {e}");

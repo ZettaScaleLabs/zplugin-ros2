@@ -204,7 +204,7 @@ r#"--watchdog=[PERIOD]   'Experimental!! Run a watchdog thread that monitors the
     // apply DDS related arguments over config
     insert_json5!(config, args, "plugins/ros2/scope", if "scope",);
     insert_json5!(config, args, "plugins/ros2/domain", if "domain", .parse::<u64>().unwrap());
-    insert_json5!(config, args, "plugins/ros2/localhost_only", if "ros-localhost-only");
+    insert_json5!(config, args, "plugins/ros2/ros_localhost_only", if "ros-localhost-only");
     #[cfg(feature = "dds_shm")]
     {
         insert_json5!(config, args, "plugins/ros2/shm_enabled", if "dds-enable-shm");

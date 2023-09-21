@@ -96,25 +96,13 @@ impl<'a> RoutesMgr<'a> {
         use ROS2DiscoveryEvent::*;
         match event {
             DiscoveredTopicPub(node, iface) => {
-                match self.add_route_publisher(&node, &iface).await? {
-                    Some(()) => log::info!("Route succesfully created for {node} {iface:?}"),
-                    None => log::info!(
-                        "A route for Publishers on {} already exists - don't create twice",
-                        iface.name
-                    ),
-                }
+                self.update_route_publisher(&node, &iface).await?;
             }
             UndiscoveredTopicPub(node, iface) => {
                 log::info!("... TODO: delete Publisher route for {}", iface.name);
             }
             DiscoveredTopicSub(node, iface) => {
-                match self.add_route_subscriber(&node, &iface).await? {
-                    Some(()) => log::info!("Route succesfully created for {node} {iface:?}"),
-                    None => log::info!(
-                        "A route for Subscribers on {} already exists - don't create twice",
-                        iface.name
-                    ),
-                }
+                self.update_route_subscriber(&node, &iface).await?;
             }
             UndiscoveredTopicSub(node, iface) => {
                 log::info!("... TODO: delete Subscriber route for {}", iface.name);
@@ -147,14 +135,14 @@ impl<'a> RoutesMgr<'a> {
         Ok(())
     }
 
-    async fn add_route_publisher(
-        &mut self,
-        node: &str,
-        iface: &TopicPub,
-    ) -> Result<Option<()>, String> {
-        if self.routes_publishers.contains_key(&iface.name) {
-            // TODO: check compatibility (QoS) of existing route with this Publisher
-            return Ok(None);
+    async fn update_route_publisher(&mut self, node: &str, iface: &TopicPub) -> Result<(), String> {
+        if let Some(route) = self.routes_publishers.get_mut(&iface.name) {
+            route.add_local_node(node.into());
+            log::debug!(
+                "{route} already exists, now serving nodes {:?}",
+                route.local_nodes
+            );
+            return Ok(());
         }
 
         // Retrieve info on DDS Writer
@@ -187,7 +175,9 @@ impl<'a> RoutesMgr<'a> {
         };
 
         // create route
-        let route = RoutePublisher::create(
+        let mut route = RoutePublisher::create(
+            iface.name.clone(),
+            iface.typ.clone(),
             &self.config,
             &self.plugin_id,
             &self.zsession,
@@ -201,6 +191,8 @@ impl<'a> RoutesMgr<'a> {
             congestion_ctrl,
         )
         .await?;
+        route.add_local_node(node.into());
+        log::info!("{route} created");
 
         // insert reference in admin_space
         let admin_ke = *KE_PREFIX_ROUTE_PUBLISHER / iface.name_as_keyexpr();
@@ -209,17 +201,21 @@ impl<'a> RoutesMgr<'a> {
 
         // insert route in routes_publishers map
         self.routes_publishers.insert(iface.name.clone(), route);
-        Ok(Some(()))
+        Ok(())
     }
 
-    async fn add_route_subscriber(
+    async fn update_route_subscriber(
         &mut self,
         node: &str,
         iface: &TopicSub,
-    ) -> Result<Option<()>, String> {
-        if self.routes_subscribers.contains_key(&iface.name) {
-            // TODO: check compatibility (QoS) of existing route with this Subscriber
-            return Ok(None);
+    ) -> Result<(), String> {
+        if let Some(route) = self.routes_subscribers.get_mut(&iface.name) {
+            route.add_local_node(node.into());
+            log::debug!(
+                "{route} already exists, now serving nodes {:?}",
+                route.local_nodes
+            );
+            return Ok(());
         }
 
         // Retrieve info on DDS Reader
@@ -243,7 +239,9 @@ impl<'a> RoutesMgr<'a> {
         let ke = iface.name_as_keyexpr().to_owned();
 
         // create route
-        let route = RouteSubscriber::create(
+        let mut route = RouteSubscriber::create(
+            iface.name.clone(),
+            iface.typ.clone(),
             &self.config,
             &self.zsession,
             self.participant,
@@ -255,15 +253,17 @@ impl<'a> RoutesMgr<'a> {
             writer_qos,
         )
         .await?;
+        route.add_local_node(node.into());
+        log::info!("{route} created");
 
         // insert reference in admin_space
         let admin_ke = *KE_PREFIX_ROUTE_SUBSCRIBER / iface.name_as_keyexpr();
         self.admin_space
-            .insert(admin_ke, RouteRef::PublisherRoute(iface.name.clone()));
+            .insert(admin_ke, RouteRef::SubscriberRoute(iface.name.clone()));
 
         // insert route in routes_publishers map
         self.routes_subscribers.insert(iface.name.clone(), route);
-        Ok(Some(()))
+        Ok(())
     }
 
     pub async fn treat_admin_query(&self, query: &Query, admin_keyexpr_prefix: &keyexpr) {
