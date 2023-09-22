@@ -29,6 +29,8 @@ pub const DEFAULT_DDS_LOCALHOST_ONLY: bool = false;
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
+    pub id: Option<OwnedKeyExpr>,
+    #[serde(default)]
     pub namespace: Option<OwnedKeyExpr>,
     #[serde(default = "default_nodename")]
     pub nodename: OwnedKeyExpr,

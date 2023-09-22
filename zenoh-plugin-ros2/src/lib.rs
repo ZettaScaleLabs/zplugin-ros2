@@ -74,7 +74,7 @@ lazy_static::lazy_static!(
 
 zenoh::kedefine!(
     pub ke_admin_version: "${plugin_status_key:**}/__version__",
-    pub ke_admin_prefix: "@/service/${zid:*}/ros2",
+    pub ke_admin_prefix: "@ros2/${id:*}/",
     pub ke_liveliness_plugin: "@ros2/${plugin_id:**}",
 );
 
@@ -294,8 +294,11 @@ impl<'a> ROS2PluginRuntime<'a> {
         DiscoveryMgr::create(self.participant);
 
         // declare admin space queryable
-        let admin_keyexpr_prefix =
-            zenoh::keformat!(ke_admin_prefix::formatter(), zid = self.zsession.zid()).unwrap();
+        let admin_keyexpr_prefix = if let Some(ref id) = self.config.id {
+            zenoh::keformat!(ke_admin_prefix::formatter(), id = id).unwrap()
+        } else {
+            zenoh::keformat!(ke_admin_prefix::formatter(), id = self.zsession.zid()).unwrap()
+        };
         let admin_keyexpr_expr = (&admin_keyexpr_prefix) / *KE_ANY_N_SEGMENT;
         log::debug!("Declare admin space on {}", admin_keyexpr_expr);
         let admin_queryable = self
