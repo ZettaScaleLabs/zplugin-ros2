@@ -18,10 +18,12 @@ use serde::{Serialize, Serializer};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashSet, fmt};
+use zenoh::liveliness::LivelinessToken;
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
 use zenoh_ext::{PublicationCache, SessionExt};
 
+use crate::ke_liveliness_pub;
 use crate::{dds_discovery::*, qos_helpers::*, Config, KE_PREFIX_PUB_CACHE};
 
 enum ZPublisher<'a> {
@@ -59,6 +61,9 @@ pub struct RoutePublisher<'a> {
     // the zenoh publisher used to re-publish to zenoh the data received by the DDS Reader
     #[serde(serialize_with = "serialize_zpublisher")]
     zenoh_publisher: ZPublisher<'a>,
+    // a liveliness token associated to this route, for announcement to other plugins
+    #[serde(skip)]
+    liveliness_token: Option<LivelinessToken<'a>>,
     // the list of remote routes served by this route (admin key expr)
     remote_routes: HashSet<OwnedKeyExpr>,
     // the list of nodes served by this route
@@ -87,19 +92,14 @@ impl fmt::Display for RoutePublisher<'_> {
 impl RoutePublisher<'_> {
     #[allow(clippy::too_many_arguments)]
     pub async fn create<'a>(
-        ros2_name: String,
-        ros2_type: String,
         config: &Config,
         plugin_id: &keyexpr,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
-        topic_name: String,
-        topic_type: String,
-        type_info: &Option<Arc<TypeInfo>>,
-        keyless: bool,
-        reader_qos: Qos,
+        ros2_name: String,
+        ros2_type: String,
+        writer: DdsEntity,
         ke: OwnedKeyExpr,
-        congestion_ctrl: CongestionControl,
     ) -> Result<RoutePublisher<'a>, String> {
         log::debug!("Route Publisher ({ros2_name} -> {ke}): creation with type {ros2_type}");
 
@@ -113,13 +113,13 @@ impl RoutePublisher<'_> {
             })?;
 
         // declare the zenoh Publisher
-        let zenoh_publisher: ZPublisher<'a> = if is_transient_local(&reader_qos) {
+        let zenoh_publisher: ZPublisher<'a> = if is_transient_local(&writer.qos) {
             #[allow(non_upper_case_globals)]
-            let history_qos = get_history_or_default(&reader_qos);
-            let durability_service_qos = get_durability_service_or_default(&reader_qos);
+            let history_qos = get_history_or_default(&writer.qos);
+            let durability_service_qos = get_durability_service_or_default(&writer.qos);
             let history = match (history_qos.kind, history_qos.depth) {
                 (HistoryKind::KEEP_LAST, n) => {
-                    if keyless {
+                    if writer.keyless {
                         // only 1 instance => history=n
                         n as usize
                     } else if durability_service_qos.max_instances == DDS_LENGTH_UNLIMITED {
@@ -142,7 +142,7 @@ impl RoutePublisher<'_> {
             };
             log::debug!(
                 "Caching publications for TRANSIENT_LOCAL Writer on resource {} with history {} (Writer uses {:?} and DurabilityService.max_instances={})",
-                ke, history, reader_qos.history, durability_service_qos.max_instances
+                ke, history, writer.qos.history, durability_service_qos.max_instances
             );
             let pub_cache = zsession
                 .declare_publication_cache(&declared_ke)
@@ -167,27 +167,59 @@ impl RoutePublisher<'_> {
             ZPublisher::Publisher(declared_ke.clone())
         };
 
+        // CongestionControl to be used when re-publishing over zenoh: Blocking if Writer is RELIABLE (since we don't know what is remote Reader's QoS)
+        let congestion_ctrl = match (
+            config.reliable_routes_blocking,
+            is_writer_reliable(&writer.qos.reliability),
+        ) {
+            (true, true) => CongestionControl::Block,
+            _ => CongestionControl::Drop,
+        };
+
         let read_period = get_read_period(&config, &ke);
 
-        // create matching DDS Writer that forwards data coming from zenoh
+        // create matching DDS Reader that forwards data coming from DDS to Zenoh
         let dds_reader = create_forwarding_dds_reader(
             participant,
-            topic_name.clone(),
-            topic_type.clone(),
-            type_info,
-            keyless,
-            reader_qos,
+            writer.topic_name.clone(),
+            writer.type_name.clone(),
+            &writer.type_info,
+            writer.keyless,
+            adapt_writer_qos_for_reader(&writer.qos),
             declared_ke,
             zsession.clone(),
             read_period,
             congestion_ctrl,
         )?;
 
+        // create associated LivelinessToken
+        let qos_ke = qos_to_key_expr(writer.keyless, &writer.qos);
+        let token = zsession
+            .liveliness()
+            .declare_token(
+                zenoh::keformat!(
+                    ke_liveliness_pub::formatter(),
+                    plugin_id,
+                    ke,
+                    typ = writer.type_name,
+                    qos_ke
+                )
+                .unwrap(),
+            )
+            .res()
+            .await
+            .map_err(|e| {
+                format!(
+                    "Failed create LivelinessToken associated to route for Publisher {ros2_name}"
+                )
+            })?;
+
         Ok(RoutePublisher {
             name: ros2_name,
             typ: ros2_type,
             dds_reader,
             zenoh_publisher,
+            liveliness_token: Some(token),
             remote_routes: HashSet::new(),
             local_nodes: HashSet::new(),
         })

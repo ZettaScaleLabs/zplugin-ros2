@@ -13,7 +13,6 @@ use async_liveliness_monitor::LivelinessMonitor;
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use clap::{App, Arg};
-use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use zenoh::config::{Config, ModeDependentValue};
 use zenoh::prelude::*;

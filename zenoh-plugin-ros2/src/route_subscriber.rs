@@ -17,6 +17,7 @@ use cyclors::{
     ddsi_serdata_kind_SDK_DATA, ddsi_sertype, ddsrt_iov_len_t, ddsrt_iovec_t,
 };
 use serde::{Serialize, Serializer};
+use zenoh::liveliness::LivelinessToken;
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -26,9 +27,10 @@ use zenoh::query::ReplyKeyExpr;
 use zenoh::{prelude::r#async::AsyncResolve, subscriber::Subscriber};
 use zenoh_ext::{FetchingSubscriber, SubscriberBuilderExt};
 
+use crate::qos_helpers::{adapt_reader_qos_for_writer, is_transient_local, qos_to_key_expr};
 use crate::{
-    dds_discovery::*, qos::Qos, vec_into_raw_parts, Config, KE_ANY_1_SEGMENT, KE_PREFIX_PUB_CACHE,
-    LOG_PAYLOAD,
+    dds_discovery::*, ke_liveliness_sub, qos::Qos, vec_into_raw_parts, Config, KE_ANY_1_SEGMENT,
+    KE_PREFIX_PUB_CACHE, LOG_PAYLOAD,
 };
 
 enum ZSubscriber<'a> {
@@ -69,6 +71,9 @@ pub struct RouteSubscriber<'a> {
     // the local DDS Writer created to serve the route (i.e. re-publish to DDS data coming from zenoh)
     #[serde(serialize_with = "serialize_entity_guid")]
     dds_writer: dds_entity_t,
+    // a liveliness token associated to this route, for announcement to other plugins
+    #[serde(skip)]
+    liveliness_token: Option<LivelinessToken<'a>>,
     // the list of remote routes served by this route (admin key expr)
     remote_routes: HashSet<OwnedKeyExpr>,
     // the list of nodes served by this route
@@ -97,30 +102,29 @@ impl fmt::Display for RouteSubscriber<'_> {
 impl RouteSubscriber<'_> {
     #[allow(clippy::too_many_arguments)]
     pub async fn create<'a, 'b>(
-        ros2_name: String,
-        ros2_type: String,
         config: &Config,
+        plugin_id: &keyexpr,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
+        ros2_name: String,
+        ros2_type: String,
+        reader: DdsEntity,
         ke: OwnedKeyExpr,
-        querying_subscriber: bool,
-        topic_name: String,
-        topic_type: String,
-        keyless: bool,
-        writer_qos: Qos,
     ) -> Result<RouteSubscriber<'a>, String> {
+        // If reader is transient_local, use a QueryingSubscriber
+        let querying_subscriber = is_transient_local(&reader.qos);
         log::debug!("Route Subscriber ({ke} -> {ros2_name}): creation with type {ros2_type} (querying_subscriber:{querying_subscriber})");
 
         let dds_writer = create_forwarding_dds_writer(
             participant,
-            topic_name.clone(),
-            topic_type.clone(),
-            keyless,
-            writer_qos,
+            reader.topic_name.clone(),
+            reader.type_name.clone(),
+            reader.keyless,
+            adapt_reader_qos_for_writer(&reader.qos),
         )?;
 
         // Callback routing data received by Zenoh subscriber to DDS Writer (if set)
-        let ton = topic_name.clone();
+        let ton = reader.topic_name.clone();
         let subscriber_callback = move |s: Sample| {
             do_route_data(s, &ton, dds_writer);
         };
@@ -169,12 +173,35 @@ impl RouteSubscriber<'_> {
             ZSubscriber::Subscriber(sub)
         };
 
+        // create associated LivelinessToken
+        let qos_ke = qos_to_key_expr(reader.keyless, &reader.qos);
+        let token = zsession
+            .liveliness()
+            .declare_token(
+                zenoh::keformat!(
+                    ke_liveliness_sub::formatter(),
+                    plugin_id,
+                    ke,
+                    typ = reader.type_name,
+                    qos_ke
+                )
+                .unwrap(),
+            )
+            .res()
+            .await
+            .map_err(|e| {
+                format!(
+                    "Failed create LivelinessToken associated to route for Publisher {ros2_name}"
+                )
+            })?;
+
         Ok(RouteSubscriber {
             name: ros2_name,
             typ: ros2_type,
             zenoh_session: zsession,
             zenoh_subscriber,
             dds_writer,
+            liveliness_token: Some(token),
             remote_routes: HashSet::new(),
             local_nodes: HashSet::new(),
         })

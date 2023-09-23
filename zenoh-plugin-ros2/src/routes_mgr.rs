@@ -28,6 +28,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use zenoh::liveliness::LivelinessToken;
 use zenoh::prelude::keyexpr;
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::OwnedKeyExpr;
@@ -69,6 +70,7 @@ pub struct RoutesMgr<'a> {
     // maps of established routes - ecah map indexed by topic/service/action name
     routes_publishers: HashMap<String, RoutePublisher<'a>>,
     routes_subscribers: HashMap<String, RouteSubscriber<'a>>,
+    admin_prefix: OwnedKeyExpr,
     // admin space: index is the admin_keyexpr (relative to admin_prefix)
     admin_space: HashMap<OwnedKeyExpr, RouteRef>,
 }
@@ -80,6 +82,7 @@ impl<'a> RoutesMgr<'a> {
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
         discovered_entities: Arc<RwLock<DiscoveredEntities>>,
+        admin_prefix: OwnedKeyExpr,
     ) -> RoutesMgr<'a> {
         RoutesMgr {
             plugin_id,
@@ -89,6 +92,7 @@ impl<'a> RoutesMgr<'a> {
             discovered_entities,
             routes_publishers: HashMap::new(),
             routes_subscribers: HashMap::new(),
+            admin_prefix,
             admin_space: HashMap::new(),
         }
     }
@@ -168,49 +172,31 @@ impl<'a> RoutesMgr<'a> {
         }
 
         // Retrieve info on DDS Writer
-        let (topic_name, topic_type, type_info, keyless, reader_qos) = {
+        let entity = {
             let entities = zread!(self.discovered_entities);
-            let entity = entities.get_writer(&iface.writer).ok_or(format!(
-                "Failed to get DDS info for {iface} Writer {}. Already deleted ?",
-                iface.writer
-            ))?;
-            (
-                entity.topic_name.clone(),
-                entity.type_name.clone(),
-                entity.type_info.clone(),
-                entity.keyless,
-                // Create matching QoS for the Route's Reader
-                adapt_writer_qos_for_reader(&entity.qos),
-            )
+            entities
+                .get_writer(&iface.writer)
+                .ok_or(format!(
+                    "Failed to get DDS info for {iface} Writer {}. Already deleted ?",
+                    iface.writer
+                ))?
+                .clone()
         };
 
         // Zenoh key expression to use for routing
         // TODO: remap option ?
         let ke = iface.name_as_keyexpr().to_owned();
-        // CongestionControl to be used when re-publishing over zenoh: Blocking if Writer is RELIABLE (since we don't know what is remote Reader's QoS)
-        let congestion_ctrl = match (
-            self.config.reliable_routes_blocking,
-            is_writer_reliable(&reader_qos.reliability),
-        ) {
-            (true, true) => CongestionControl::Block,
-            _ => CongestionControl::Drop,
-        };
 
         // create route
         let mut route = RoutePublisher::create(
-            iface.name.clone(),
-            iface.typ.clone(),
             &self.config,
             &self.plugin_id,
             &self.zsession,
             self.participant,
-            topic_name,
-            topic_type,
-            &type_info,
-            keyless,
-            reader_qos,
+            iface.name.clone(),
+            iface.typ.clone(),
+            entity,
             ke,
-            congestion_ctrl,
         )
         .await?;
         route.add_local_node(node.into());
@@ -241,19 +227,15 @@ impl<'a> RoutesMgr<'a> {
         }
 
         // Retrieve info on DDS Reader
-        let (topic_name, topic_type, keyless, writer_qos) = {
+        let entity = {
             let entities = zread!(self.discovered_entities);
-            let entity = entities.get_reader(&iface.reader).ok_or(format!(
-                "Failed to get DDS info for {iface} Reader {}. Already deleted ?",
-                iface.reader
-            ))?;
-            (
-                entity.topic_name.clone(),
-                entity.type_name.clone(),
-                entity.keyless,
-                // Create matching QoS for the Route's Writer
-                adapt_reader_qos_for_writer(&entity.qos),
-            )
+            entities
+                .get_reader(&iface.reader)
+                .ok_or(format!(
+                    "Failed to get DDS info for {iface} Reader {}. Already deleted ?",
+                    iface.reader
+                ))?
+                .clone()
         };
 
         // Zenoh key expression to use for routing
@@ -262,17 +244,14 @@ impl<'a> RoutesMgr<'a> {
 
         // create route
         let mut route = RouteSubscriber::create(
-            iface.name.clone(),
-            iface.typ.clone(),
             &self.config,
+            &self.plugin_id,
             &self.zsession,
             self.participant,
-            ke.clone(),
-            is_transient_local(&writer_qos),
-            topic_name,
-            topic_type,
-            keyless,
-            writer_qos,
+            iface.name.clone(),
+            iface.typ.clone(),
+            entity,
+            ke,
         )
         .await?;
         route.add_local_node(node.into());
@@ -288,14 +267,14 @@ impl<'a> RoutesMgr<'a> {
         Ok(())
     }
 
-    pub async fn treat_admin_query(&self, query: &Query, admin_keyexpr_prefix: &keyexpr) {
+    pub async fn treat_admin_query(&self, query: &Query) {
         let selector = query.selector();
 
         // get the list of sub-key expressions that will match the same stored keys than
         // the selector, if those keys had the admin_keyexpr_prefix.
-        let sub_kes = selector.key_expr.strip_prefix(admin_keyexpr_prefix);
+        let sub_kes = selector.key_expr.strip_prefix(&self.admin_prefix);
         if sub_kes.is_empty() {
-            log::error!("Received query for admin space: '{}' - but it's not prefixed by admin_keyexpr_prefix='{}'", selector, admin_keyexpr_prefix);
+            log::error!("Received query for admin space: '{}' - but it's not prefixed by admin_keyexpr_prefix='{}'", selector, &self.admin_prefix);
             return;
         }
 
@@ -305,30 +284,22 @@ impl<'a> RoutesMgr<'a> {
                 // iterate over all admin space to find matching keys and reply for each
                 for (ke, route_ref) in self.admin_space.iter() {
                     if sub_ke.intersects(ke) {
-                        self.send_admin_reply(query, admin_keyexpr_prefix, ke, route_ref)
-                            .await;
+                        self.send_admin_reply(query, ke, route_ref).await;
                     }
                 }
             } else {
                 // sub_ke correspond to 1 key - just get it and reply
                 if let Some(route_ref) = self.admin_space.get(sub_ke) {
-                    self.send_admin_reply(query, admin_keyexpr_prefix, sub_ke, route_ref)
-                        .await;
+                    self.send_admin_reply(query, sub_ke, route_ref).await;
                 }
             }
         }
     }
 
-    async fn send_admin_reply(
-        &self,
-        query: &Query,
-        admin_keyexpr_prefix: &keyexpr,
-        key_expr: &keyexpr,
-        route_ref: &RouteRef,
-    ) {
+    async fn send_admin_reply(&self, query: &Query, key_expr: &keyexpr, route_ref: &RouteRef) {
         match self.get_entity_json_value(route_ref) {
             Ok(Some(v)) => {
-                let admin_keyexpr = admin_keyexpr_prefix / &key_expr;
+                let admin_keyexpr = &self.admin_prefix / &key_expr;
                 if let Err(e) = query
                     .reply(Ok(Sample::new(admin_keyexpr, v)))
                     .res_async()

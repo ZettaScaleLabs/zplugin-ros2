@@ -74,8 +74,10 @@ lazy_static::lazy_static!(
 
 zenoh::kedefine!(
     pub ke_admin_version: "${plugin_status_key:**}/__version__",
-    pub ke_admin_prefix: "@ros2/${id:*}/",
-    pub ke_liveliness_plugin: "@ros2/${plugin_id:**}",
+    pub ke_admin_prefix: "@ros2/${plugin_id:*}/",
+    pub ke_liveliness_plugin: "@ros2/lv/${plugin_id:*}",
+    pub(crate) ke_liveliness_pub: "@ros2/lv/${plugin_id:*}/TP/${ke:**}/${typ:*}/${qos_ke:*}",
+    pub(crate) ke_liveliness_sub: "@ros2/lv/${plugin_id:*}/TS/${ke:**}/${typ:*}/${qos_ke:*}",
 );
 
 // CycloneDDS' localhost-only: set network interface address (shortened form of config would be
@@ -117,6 +119,7 @@ impl Plugin for ROS2Plugin {
         Ok(Box::new(ROS2Plugin))
     }
 }
+
 impl RunningPluginTrait for ROS2Plugin {
     fn config_checker(&self) -> zenoh::plugins::ValidationFunction {
         Arc::new(|_, _, _| bail!("ROS2Plugin does not support hot configuration changes."))
@@ -156,8 +159,18 @@ pub async fn run(runtime: Runtime, config: Config) {
         }
     };
 
-    let plugin_id = zsession.zid();
-    let ke_liveliness = zenoh::keformat!(ke_liveliness_plugin::formatter(), plugin_id).unwrap();
+    let plugin_id = if let Some(ref id) = config.id {
+        if id.contains('/') {
+            log::error!("The 'id' configuration must not contain any '/' character");
+            return;
+        }
+        id.clone()
+    } else {
+        zsession.zid().into_keyexpr().to_owned()
+    };
+
+    let ke_liveliness =
+        zenoh::keformat!(ke_liveliness_plugin::formatter(), plugin_id = &plugin_id).unwrap();
     let member = match zsession
         .liveliness()
         .declare_token(ke_liveliness)
@@ -223,7 +236,7 @@ pub async fn run(runtime: Runtime, config: Config) {
         zsession: &zsession,
         participant,
         _member: member,
-        plugin_id: plugin_id.into(),
+        plugin_id,
         admin_space: HashMap::<OwnedKeyExpr, AdminRef>::new(),
     };
 
@@ -267,7 +280,7 @@ impl<'a> ROS2PluginRuntime<'a> {
         // Subscribe to all liveliness info from other ROS2 plugins
         let ke_liveliness_all =
             zenoh::keformat!(ke_liveliness_plugin::formatter(), plugin_id = "**").unwrap();
-        let group_subscriber = self
+        let liveliness_subscriber = self
             .zsession
             .liveliness()
             .declare_subscriber(ke_liveliness_all)
@@ -276,6 +289,25 @@ impl<'a> ROS2PluginRuntime<'a> {
             .res_async()
             .await
             .expect("Failed to create Liveliness Subscriber");
+
+        // declare admin space queryable
+        let admin_prefix =
+            zenoh::keformat!(ke_admin_prefix::formatter(), plugin_id = &self.plugin_id).unwrap();
+        let admin_keyexpr_expr = (&admin_prefix) / *KE_ANY_N_SEGMENT;
+        log::debug!("Declare admin space on {}", admin_keyexpr_expr);
+        let admin_queryable = self
+            .zsession
+            .declare_queryable(admin_keyexpr_expr)
+            .res_async()
+            .await
+            .expect("Failed to create AdminSpace queryable");
+
+        // add plugin's config and version in admin space
+        self.admin_space
+            .insert(&admin_prefix / ke_for_sure!("config"), AdminRef::Config);
+        self.admin_space
+            .insert(&admin_prefix / ke_for_sure!("version"), AdminRef::Version);
+
 
         // Create and start DiscoveryManager
         let (tx, discovery_rcv): (Sender<ROS2DiscoveryEvent>, Receiver<ROS2DiscoveryEvent>) =
@@ -290,33 +322,9 @@ impl<'a> ROS2PluginRuntime<'a> {
             self.zsession,
             self.participant,
             discovery_mgr.discovered_entities.clone(),
+            admin_prefix.clone(),
         );
         DiscoveryMgr::create(self.participant);
-
-        // declare admin space queryable
-        let admin_keyexpr_prefix = if let Some(ref id) = self.config.id {
-            zenoh::keformat!(ke_admin_prefix::formatter(), id = id).unwrap()
-        } else {
-            zenoh::keformat!(ke_admin_prefix::formatter(), id = self.zsession.zid()).unwrap()
-        };
-        let admin_keyexpr_expr = (&admin_keyexpr_prefix) / *KE_ANY_N_SEGMENT;
-        log::debug!("Declare admin space on {}", admin_keyexpr_expr);
-        let admin_queryable = self
-            .zsession
-            .declare_queryable(admin_keyexpr_expr)
-            .res_async()
-            .await
-            .expect("Failed to create AdminSpace queryable");
-
-        // add plugin's config and version in admin space
-        self.admin_space.insert(
-            &admin_keyexpr_prefix / ke_for_sure!("config"),
-            AdminRef::Config,
-        );
-        self.admin_space.insert(
-            &admin_keyexpr_prefix / ke_for_sure!("version"),
-            AdminRef::Version,
-        );
 
         loop {
             select!(
@@ -336,23 +344,62 @@ impl<'a> ROS2PluginRuntime<'a> {
                     }
                 },
 
-                group_event = group_subscriber.recv_async() => {
-                    match group_event
+                liveliness_event = liveliness_subscriber.recv_async() => {
+                    match liveliness_event
                     {
                         Ok(evt) => {
-                            let ke_parsed = ke_liveliness_plugin::parse(evt.key_expr.as_keyexpr());
-                            let plugin_id = ke_parsed.map(|p| p.plugin_id().map(ToOwned::to_owned));
-                            match (plugin_id, evt.kind) {
-                                (Ok(Some(plugin_id)), SampleKind::Put) if plugin_id != self.plugin_id => {
-                                    log::info!("New zenoh_ros2_plugin detected: {}", plugin_id);
+                            let ke = evt.key_expr.as_keyexpr();
+                            if let Ok(parsed) = ke_liveliness_plugin::parse(ke) {
+                                let plugin_id = parsed.plugin_id().map(ToOwned::to_owned);
+                                match (plugin_id, evt.kind) {
+                                    (Some(plugin_id), SampleKind::Put) if plugin_id != self.plugin_id => {
+                                        log::info!("New zenoh_ros2_plugin detected: {}", plugin_id);
+                                    }
+                                    (Some(plugin_id), SampleKind::Delete) if plugin_id != self.plugin_id => {
+                                        log::debug!("Remote zenoh_ros2_plugin left: {}", plugin_id);
+                                    }
+                                    (Some(_), _) => (),
+                                    (None, _) => log::warn!("Received unexpected Liveliness key expression '{}'", ke)
                                 }
-                                (Ok(Some(plugin_id)), SampleKind::Delete) if plugin_id != self.plugin_id => {
-                                    log::debug!("Remote zenoh_ros2_plugin left: {}", plugin_id);
+
+                            } else if let Ok(parsed) = ke_liveliness_pub::parse(ke) {
+                                let plugin_id = parsed.plugin_id().map(ToOwned::to_owned);
+                                match plugin_id {
+                                    Some(plugin_id) if plugin_id != self.plugin_id => {
+                                        println!("==> Rcv TopicPub liveliness: {ke}");
+                                    }
+                                    _ => ()
                                 }
-                                (Ok(Some(_)), _) => (),
-                                (Ok(None), _) | (Err(_), _) =>
-                                log::warn!("Error receiving GroupEvent: invalid keyexpr '{}'", evt.key_expr)
+
+                            } else if let Ok(parsed) = ke_liveliness_sub::parse(ke) {
+                                let plugin_id = parsed.plugin_id().map(ToOwned::to_owned);
+                                match plugin_id {
+                                    Some(plugin_id) if plugin_id != self.plugin_id => {
+                                        println!("==> Rcv TopicSub liveliness: {ke}");
+                                    }
+                                    _ => ()
+                                }
+
+                            } else {
+                                log::warn!("Received unexpected Liveliness key expression '{}'", ke);
                             }
+
+
+
+
+                            // let ke_parsed = ke_liveliness_plugin::parse(evt.key_expr.as_keyexpr());
+                            // let plugin_id = ke_parsed.map(|p| p.plugin_id().map(ToOwned::to_owned));
+                            // match (plugin_id, evt.kind) {
+                            //     (Ok(Some(plugin_id)), SampleKind::Put) if plugin_id != self.plugin_id => {
+                            //         log::info!("New zenoh_ros2_plugin detected: {}", plugin_id);
+                            //     }
+                            //     (Ok(Some(plugin_id)), SampleKind::Delete) if plugin_id != self.plugin_id => {
+                            //         log::debug!("Remote zenoh_ros2_plugin left: {}", plugin_id);
+                            //     }
+                            //     (Ok(Some(_)), _) => (),
+                            //     (Ok(None), _) | (Err(_), _) =>
+                            //     log::warn!("Error receiving GroupEvent: invalid keyexpr '{}'", evt.key_expr)
+                            // }
                         },
                         Err(e) => log::warn!("Error receiving GroupEvent: {}", e)
                     }
@@ -362,9 +409,9 @@ impl<'a> ROS2PluginRuntime<'a> {
                     if let Ok(query) = get_request {
                         self.treat_admin_query(&query).await;
                         // pass query to discovery_mgr
-                        discovery_mgr.treat_admin_query(&query, &admin_keyexpr_prefix);
+                        discovery_mgr.treat_admin_query(&query, &admin_prefix);
                         // pass query to discovery_mgr
-                        routes_mgr.treat_admin_query(&query, &admin_keyexpr_prefix).await;
+                        routes_mgr.treat_admin_query(&query).await;
                     } else {
                         log::warn!("AdminSpace queryable was closed!");
                     }

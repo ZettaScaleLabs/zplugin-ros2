@@ -33,7 +33,7 @@ use zenoh_core::SyncResolve;
 
 use crate::gid::Gid;
 
-const MAX_SAMPLES: u32 = 32;
+const MAX_SAMPLES: usize = 32;
 
 #[derive(Debug)]
 pub struct TypeInfo {
@@ -58,7 +58,7 @@ impl Drop for TypeInfo {
 unsafe impl Send for TypeInfo {}
 unsafe impl Sync for TypeInfo {}
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DdsEntity {
     pub key: Gid,
     pub participant_key: Gid,
@@ -285,8 +285,8 @@ unsafe extern "C" fn on_data(dr: dds_entity_t, arg: *mut std::os::raw::c_void) {
         dr,
         samples.as_mut_ptr() as *mut *mut raw::c_void,
         si.as_mut_ptr() as *mut dds_sample_info_t,
-        MAX_SAMPLES.into(),
         MAX_SAMPLES,
+        MAX_SAMPLES as u32,
     );
     let si = si.assume_init();
 
