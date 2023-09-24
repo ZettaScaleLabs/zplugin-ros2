@@ -13,6 +13,7 @@
 //
 use async_trait::async_trait;
 use cyclors::*;
+use events::ROS2AnnouncementEvent;
 use flume::{unbounded, Receiver, Sender};
 use futures::select;
 use git_version::git_version;
@@ -37,6 +38,7 @@ pub mod config;
 mod dds_discovery;
 mod discovered_entities;
 mod discovery_mgr;
+mod events;
 mod gid;
 mod node_info;
 mod qos_helpers;
@@ -47,8 +49,9 @@ mod routes_mgr;
 use config::Config;
 use dds_discovery::*;
 
-use crate::discovered_entities::ROS2DiscoveryEvent;
 use crate::discovery_mgr::DiscoveryMgr;
+use crate::events::ROS2DiscoveryEvent;
+use crate::qos_helpers::key_expr_to_qos;
 use crate::routes_mgr::RoutesMgr;
 
 pub const GIT_VERSION: &str = git_version!(prefix = "v", cargo_prefix = "v");
@@ -73,11 +76,17 @@ lazy_static::lazy_static!(
 );
 
 zenoh::kedefine!(
+    // Admin space key expressions of plugin's version
     pub ke_admin_version: "${plugin_status_key:**}/__version__",
+
+    // Admin prefix of this bridge
     pub ke_admin_prefix: "@ros2/${plugin_id:*}/",
-    pub ke_liveliness_plugin: "@ros2/lv/${plugin_id:*}",
-    pub(crate) ke_liveliness_pub: "@ros2/lv/${plugin_id:*}/TP/${ke:**}/${typ:*}/${qos_ke:*}",
-    pub(crate) ke_liveliness_sub: "@ros2/lv/${plugin_id:*}/TS/${ke:**}/${typ:*}/${qos_ke:*}",
+
+    // Liveliness tokens key expressions
+    pub ke_liveliness_all: "@ros2_lv/${plugin_id:*}/${remaining:**}",
+    pub ke_liveliness_plugin: "@ros2_lv/${plugin_id:*}",
+    pub(crate) ke_liveliness_pub: "@ros2_lv/${plugin_id:*}/MP/${ke:**}/${typ:*}/${qos_ke:*}",
+    pub(crate) ke_liveliness_sub: "@ros2_lv/${plugin_id:*}/MS/${ke:**}/${typ:*}/${qos_ke:*}",
 );
 
 // CycloneDDS' localhost-only: set network interface address (shortened form of config would be
@@ -169,6 +178,7 @@ pub async fn run(runtime: Runtime, config: Config) {
         zsession.zid().into_keyexpr().to_owned()
     };
 
+    // Declare plugin's liveliness token
     let ke_liveliness =
         zenoh::keformat!(ke_liveliness_plugin::formatter(), plugin_id = &plugin_id).unwrap();
     let member = match zsession
@@ -278,8 +288,12 @@ enum AdminRef {
 impl<'a> ROS2PluginRuntime<'a> {
     async fn run(&mut self) {
         // Subscribe to all liveliness info from other ROS2 plugins
-        let ke_liveliness_all =
-            zenoh::keformat!(ke_liveliness_plugin::formatter(), plugin_id = "**").unwrap();
+        let ke_liveliness_all = zenoh::keformat!(
+            ke_liveliness_all::formatter(),
+            plugin_id = "*",
+            remaining = "**"
+        )
+        .unwrap();
         let liveliness_subscriber = self
             .zsession
             .liveliness()
@@ -348,42 +362,31 @@ impl<'a> ROS2PluginRuntime<'a> {
                     {
                         Ok(evt) => {
                             let ke = evt.key_expr.as_keyexpr();
-                            if let Ok(parsed) = ke_liveliness_plugin::parse(ke) {
-                                let plugin_id = parsed.plugin_id().map(ToOwned::to_owned);
-                                match (plugin_id, evt.kind) {
-                                    (Some(plugin_id), SampleKind::Put) if plugin_id != self.plugin_id => {
-                                        log::info!("New zenoh_ros2_plugin detected: {}", plugin_id);
-                                    }
-                                    (Some(plugin_id), SampleKind::Delete) if plugin_id != self.plugin_id => {
-                                        log::debug!("Remote zenoh_ros2_plugin left: {}", plugin_id);
-                                    }
-                                    (Some(_), _) => (),
-                                    (None, _) => log::warn!("Received unexpected Liveliness key expression '{}'", ke)
+                            if let Ok(parsed) = ke_liveliness_all::parse(ke) {
+                                let plugin_id = parsed.plugin_id().unwrap();
+                                if plugin_id == self.plugin_id.as_ref() {
+                                    // ignore own announcements
+                                    continue;
                                 }
-
-                            } else if let Ok(parsed) = ke_liveliness_pub::parse(ke) {
-                                let plugin_id = parsed.plugin_id().map(ToOwned::to_owned);
-                                match plugin_id {
-                                    Some(plugin_id) if plugin_id != self.plugin_id => {
-                                        println!("==> Rcv MsgPub liveliness: {ke}");
+                                match (parsed.remaining(), evt.kind)  {
+                                    (None, SampleKind::Put) => log::info!("New ROS 2 bridge detected: {}", plugin_id),
+                                    (None, SampleKind::Delete) => log::info!("Remote ROS 2 bridge left: {}", plugin_id),
+                                    (Some(remaining), _) => {
+                                        // the liveliness token corresponds to a ROS2 announcement
+                                        match self.parse_announcement_event(ke, &remaining.as_str()[..3], evt.kind) {
+                                            Ok(evt) => {
+                                                log::info!("Remote bridge {plugin_id} {evt}");
+                                            },
+                                            Err(e) =>
+                                                log::warn!("Received unexpected liveliness key expression '{ke}': {e}")
+                                        }
                                     }
-                                    _ => ()
                                 }
-
-                            } else if let Ok(parsed) = ke_liveliness_sub::parse(ke) {
-                                let plugin_id = parsed.plugin_id().map(ToOwned::to_owned);
-                                match plugin_id {
-                                    Some(plugin_id) if plugin_id != self.plugin_id => {
-                                        println!("==> Rcv MsgSub liveliness: {ke}");
-                                    }
-                                    _ => ()
-                                }
-
                             } else {
-                                log::warn!("Received unexpected Liveliness key expression '{}'", ke);
+                                log::warn!("Received unexpected liveliness key expression '{ke}'");
                             }
                         },
-                        Err(e) => log::warn!("Error receiving GroupEvent: {}", e)
+                        Err(e) => log::warn!("Error receiving liveliness event: {e}")
                     }
                 },
 
@@ -399,6 +402,71 @@ impl<'a> ROS2PluginRuntime<'a> {
                     }
                 }
             )
+        }
+    }
+
+    fn parse_announcement_event(
+        &self,
+        liveliness_ke: &keyexpr,
+        iface_kind: &str,
+        sample_kind: SampleKind,
+    ) -> Result<ROS2AnnouncementEvent, String> {
+        use ROS2AnnouncementEvent::*;
+        log::debug!("Received liveliness event: {sample_kind} on {liveliness_ke}");
+        match (iface_kind, sample_kind) {
+            ("MP/", SampleKind::Put) => {
+                ke_liveliness_pub::parse(liveliness_ke)
+                    .map_err(|e| e.to_string())
+                    .and_then(|parsed| {
+                        match (parsed.ke(), parsed.typ(), parsed.qos_ke()) {
+                            (Some(ke), Some(typ), Some(qos_ke)) => {
+                                match key_expr_to_qos(qos_ke) {
+                                    Ok((keyless, writer_qos)) => Ok(AnnouncedMsgPub { liveliness_ke: liveliness_ke.to_owned(), route_ke: ke.to_owned(), ros2_type: typ.to_string(), keyless, writer_qos }),
+                                    Err(e) => Err(format!("failed to parse AnnouncedMsgPub within because of QoS keyexpr '{qos_ke}' - {e}"))
+                                }
+                            }
+                            _ => Err("failed to parse AnnouncedMsgPub within".to_string())
+                        }
+                })
+            },
+            ("MP/", SampleKind::Delete) => {
+                // check is keyexpr is valid
+                ke_liveliness_pub::parse(liveliness_ke)
+                    .map_err(|e| e.to_string())
+                    .and_then(|parsed| {
+                        match parsed.ke() {
+                            Some(ke) => Ok(RetiredMsgPub { liveliness_ke: liveliness_ke.to_owned(), route_ke: ke.to_owned() }),
+                            None => Err("failed to parse RetiredMsgPub within".to_string())
+                        }
+                })
+            }
+            ("MS/", SampleKind::Put) => {
+                ke_liveliness_sub::parse(liveliness_ke)
+                    .map_err(|e| e.to_string())
+                    .and_then(|parsed| {
+                        match (parsed.ke(), parsed.typ(), parsed.qos_ke()) {
+                            (Some(ke), Some(typ), Some(qos_ke)) => {
+                                match key_expr_to_qos(qos_ke) {
+                                    Ok((keyless, reader_qos)) => Ok(AnnouncedMsgSub { liveliness_ke: liveliness_ke.to_owned(), route_ke: ke.to_owned(), ros2_type: typ.to_string(), keyless, reader_qos }),
+                                    Err(e) => Err(format!("failed to parse AnnouncedMsgSub within because of QoS keyexpr '{qos_ke}' - {e}"))
+                                }
+                            }
+                            _ => Err("failed to parse AnnouncedMsgSub within".to_string())
+                        }
+                })
+            }
+            ("MS/", SampleKind::Delete) => {
+                // check is keyexpr is valid
+                ke_liveliness_sub::parse(liveliness_ke)
+                    .map_err(|e| e.to_string())
+                    .and_then(|parsed| {
+                        match parsed.ke() {
+                            Some(ke) => Ok(RetiredMsgSub { liveliness_ke: liveliness_ke.to_owned(), route_ke: ke.to_owned() }),
+                            None => Err("failed to parse RetiredMsgPub within".to_string())
+                        }
+                })
+            }
+            _ => Err(format!("invalid ROS2 interface kind: {iface_kind}")),
         }
     }
 

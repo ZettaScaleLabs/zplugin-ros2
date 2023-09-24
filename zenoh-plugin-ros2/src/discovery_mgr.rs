@@ -13,7 +13,7 @@
 //
 use crate::dds_discovery::*;
 use crate::discovered_entities::DiscoveredEntities;
-use crate::discovered_entities::ROS2DiscoveryEvent;
+use crate::events::ROS2DiscoveryEvent;
 use crate::ros_discovery::*;
 use async_std::task;
 use cyclors::dds_entity_t;

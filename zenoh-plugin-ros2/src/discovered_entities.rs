@@ -17,6 +17,7 @@ use std::fmt::{self, Debug};
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::{prelude::*, queryable::Query};
 
+use crate::events::ROS2DiscoveryEvent;
 use crate::ros_discovery::NodeEntitiesInfo;
 use crate::{
     dds_discovery::{DdsEntity, DdsParticipant},
@@ -448,74 +449,6 @@ impl DiscoveredEntities {
             Err(e) => {
                 log::error!("INTERNAL ERROR serializing admin value as JSON: {}", e)
             }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ROS2DiscoveryEvent {
-    DiscoveredMsgPub(String, MsgPub),
-    UndiscoveredMsgPub(String, MsgPub),
-    DiscoveredMsgSub(String, MsgSub),
-    UndiscoveredMsgSub(String, MsgSub),
-    DiscoveredServiceSrv(String, ServiceSrv),
-    UndiscoveredServiceSrv(String, ServiceSrv),
-    DiscoveredServiceCli(String, ServiceCli),
-    UndiscoveredServiceCli(String, ServiceCli),
-    DiscoveredActionSrv(String, ActionSrv),
-    UndiscoveredActionSrv(String, ActionSrv),
-    DiscoveredActionCli(String, ActionCli),
-    UndiscoveredActionCli(String, ActionCli),
-}
-
-impl ROS2DiscoveryEvent {
-    pub fn node_name(&self) -> &str {
-        use ROS2DiscoveryEvent::*;
-        match self {
-            DiscoveredMsgPub(node, _)
-            | UndiscoveredMsgPub(node, _)
-            | DiscoveredMsgSub(node, _)
-            | UndiscoveredMsgSub(node, _)
-            | DiscoveredServiceSrv(node, _)
-            | UndiscoveredServiceSrv(node, _)
-            | DiscoveredServiceCli(node, _)
-            | UndiscoveredServiceCli(node, _)
-            | DiscoveredActionSrv(node, _)
-            | UndiscoveredActionSrv(node, _)
-            | DiscoveredActionCli(node, _)
-            | UndiscoveredActionCli(node, _) => &node,
-        }
-    }
-
-    pub fn interface_name(&self) -> &str {
-        use ROS2DiscoveryEvent::*;
-        match self {
-            DiscoveredMsgPub(_, iface) | UndiscoveredMsgPub(_, iface) => &iface.name,
-            DiscoveredMsgSub(_, iface) | UndiscoveredMsgSub(_, iface) => &iface.name,
-            DiscoveredServiceSrv(_, iface) | UndiscoveredServiceSrv(_, iface) => &iface.name,
-            DiscoveredServiceCli(_, iface) | UndiscoveredServiceCli(_, iface) => &iface.name,
-            DiscoveredActionSrv(_, iface) | UndiscoveredActionSrv(_, iface) => &iface.name,
-            DiscoveredActionCli(_, iface) | UndiscoveredActionCli(_, iface) => &iface.name,
-        }
-    }
-}
-
-impl fmt::Display for ROS2DiscoveryEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use ROS2DiscoveryEvent::*;
-        match self {
-            DiscoveredMsgPub(node, iface) => write!(f, "Node {node} declares {iface}"),
-            DiscoveredMsgSub(node, iface) => write!(f, "Node {node} declares {iface}"),
-            DiscoveredServiceSrv(node, iface) => write!(f, "Node {node} declares {iface}"),
-            DiscoveredServiceCli(node, iface) => write!(f, "Node {node} declares {iface}"),
-            DiscoveredActionSrv(node, iface) => write!(f, "Node {node} declares {iface}"),
-            DiscoveredActionCli(node, iface) => write!(f, "Node {node} declares {iface}"),
-            UndiscoveredMsgPub(node, iface) => write!(f, "Node {node} undeclares {iface}"),
-            UndiscoveredMsgSub(node, iface) => write!(f, "Node {node} undeclares {iface}"),
-            UndiscoveredServiceSrv(node, iface) => write!(f, "Node {node} undeclares {iface}"),
-            UndiscoveredServiceCli(node, iface) => write!(f, "Node {node} undeclares {iface}"),
-            UndiscoveredActionSrv(node, iface) => write!(f, "Node {node} undeclares {iface}"),
-            UndiscoveredActionCli(node, iface) => write!(f, "Node {node} undeclares {iface}"),
         }
     }
 }

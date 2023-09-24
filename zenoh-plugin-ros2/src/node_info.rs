@@ -19,7 +19,7 @@ use std::ops::Range;
 use zenoh::prelude::{keyexpr, KeyExpr};
 
 use crate::dds_discovery::DdsEntity;
-use crate::discovered_entities::ROS2DiscoveryEvent;
+use crate::events::ROS2DiscoveryEvent;
 use crate::gid::Gid;
 use crate::ke_for_sure;
 

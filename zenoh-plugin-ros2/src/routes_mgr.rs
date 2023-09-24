@@ -13,7 +13,7 @@
 //
 use crate::config::Config;
 use crate::discovered_entities::DiscoveredEntities;
-use crate::discovered_entities::ROS2DiscoveryEvent;
+use crate::events::ROS2DiscoveryEvent;
 use crate::node_info::MsgPub;
 use crate::node_info::MsgSub;
 use crate::qos_helpers::adapt_reader_qos_for_writer;
