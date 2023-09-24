@@ -24,7 +24,7 @@ use crate::gid::Gid;
 use crate::ke_for_sure;
 
 #[derive(Clone, Debug, Serialize)]
-pub struct TopicPub {
+pub struct MsgPub {
     pub name: String,
     #[serde(rename = "type")]
     pub typ: String,
@@ -32,10 +32,10 @@ pub struct TopicPub {
     pub writer: Gid,
 }
 
-impl TopicPub {
-    pub fn create(name: String, typ: String, writer: Gid) -> Result<TopicPub, String> {
+impl MsgPub {
+    pub fn create(name: String, typ: String, writer: Gid) -> Result<MsgPub, String> {
         check_ros_name(&name)?;
-        Ok(TopicPub { name, typ, writer })
+        Ok(MsgPub { name, typ, writer })
     }
 
     pub fn name_as_keyexpr(&self) -> &keyexpr {
@@ -43,7 +43,7 @@ impl TopicPub {
     }
 }
 
-impl std::fmt::Display for TopicPub {
+impl std::fmt::Display for MsgPub {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Publisher {}: {}", self.name, self.typ)?;
         Ok(())
@@ -51,7 +51,7 @@ impl std::fmt::Display for TopicPub {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct TopicSub {
+pub struct MsgSub {
     pub name: String,
     #[serde(rename = "type")]
     pub typ: String,
@@ -59,10 +59,10 @@ pub struct TopicSub {
     pub reader: Gid,
 }
 
-impl TopicSub {
-    pub fn create(name: String, typ: String, reader: Gid) -> Result<TopicSub, String> {
+impl MsgSub {
+    pub fn create(name: String, typ: String, reader: Gid) -> Result<MsgSub, String> {
         check_ros_name(&name)?;
-        Ok(TopicSub { name, typ, reader })
+        Ok(MsgSub { name, typ, reader })
     }
 
     pub fn name_as_keyexpr(&self) -> &keyexpr {
@@ -70,7 +70,7 @@ impl TopicSub {
     }
 }
 
-impl std::fmt::Display for TopicSub {
+impl std::fmt::Display for MsgSub {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Subscriber {}: {}", self.name, self.typ)?;
         Ok(())
@@ -353,9 +353,9 @@ pub struct NodeInfo {
     #[serde(skip)]
     pub participant: Gid,
     #[serde(rename = "publishers", serialize_with = "serialize_hashmap_values")]
-    pub topic_pub: HashMap<String, TopicPub>,
+    pub msg_pub: HashMap<String, MsgPub>,
     #[serde(rename = "subscribers", serialize_with = "serialize_hashmap_values")]
-    pub topic_sub: HashMap<String, TopicSub>,
+    pub msg_sub: HashMap<String, MsgSub>,
     #[serde(
         rename = "service_servers",
         serialize_with = "serialize_hashmap_values"
@@ -437,8 +437,8 @@ impl NodeInfo {
             namespace,
             name,
             participant,
-            topic_pub: HashMap::new(),
-            topic_sub: HashMap::new(),
+            msg_pub: HashMap::new(),
+            msg_sub: HashMap::new(),
             service_srv: HashMap::new(),
             service_cli: HashMap::new(),
             action_srv: HashMap::new(),
@@ -494,7 +494,7 @@ impl NodeInfo {
                     dds_action_topic_to_ros(&entity.type_name),
                     &entity.key,
                 ),
-            "rt/" => self.update_topic_sub(
+            "rt/" => self.update_msg_sub(
                 topic_suffix,
                 dds_pubsub_topic_to_ros(&entity.type_name),
                 &entity.key,
@@ -568,7 +568,7 @@ impl NodeInfo {
                     dds_action_topic_to_ros(&entity.type_name),
                     &entity.key,
                 ),
-            "rt/" => self.update_topic_pub(
+            "rt/" => self.update_msg_pub(
                 topic_suffix,
                 dds_pubsub_topic_to_ros(&entity.type_name),
                 &entity.key,
@@ -627,20 +627,20 @@ impl NodeInfo {
         }
     }
 
-    // Update TopicPub, returing a ROS2DiscoveryEvent::DiscoveredTopicSub if new or changed
-    fn update_topic_pub(
+    // Update MsgPub, returing a ROS2DiscoveryEvent::DiscoveredMsgSub if new or changed
+    fn update_msg_pub(
         &mut self,
         name: &str,
         typ: String,
         writer: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
-        use ROS2DiscoveryEvent::DiscoveredTopicPub;
+        use ROS2DiscoveryEvent::DiscoveredMsgPub;
         let node_fullname = self.fullname().to_string();
-        match self.topic_pub.entry(name.into()) {
-            Entry::Vacant(e) => match TopicPub::create(name.into(), typ, *writer) {
+        match self.msg_pub.entry(name.into()) {
+            Entry::Vacant(e) => match MsgPub::create(name.into(), typ, *writer) {
                 Ok(t) => {
                     e.insert(t.clone());
-                    Some(DiscoveredTopicPub(node_fullname, t))
+                    Some(DiscoveredMsgPub(node_fullname, t))
                 }
                 Err(e) => {
                     log::error!(
@@ -657,7 +657,7 @@ impl NodeInfo {
                         r#"ROS declaration of Publisher "{v}" changed it's type to "{typ}""#
                     );
                     v.typ = typ;
-                    result = Some(DiscoveredTopicPub(node_fullname.clone(), v.clone()));
+                    result = Some(DiscoveredMsgPub(node_fullname.clone(), v.clone()));
                 }
                 if v.writer != *writer {
                     log::debug!(
@@ -665,27 +665,27 @@ impl NodeInfo {
                         v.writer
                     );
                     v.writer = *writer;
-                    result = Some(DiscoveredTopicPub(node_fullname, v.clone()));
+                    result = Some(DiscoveredMsgPub(node_fullname, v.clone()));
                 }
                 result
             }
         }
     }
 
-    // Update TopicSub, returing a ROS2DiscoveryEvent::DiscoveredTopicSub if new or changed
-    fn update_topic_sub(
+    // Update MsgSub, returing a ROS2DiscoveryEvent::DiscoveredMsgSub if new or changed
+    fn update_msg_sub(
         &mut self,
         name: &str,
         typ: String,
         reader: &Gid,
     ) -> Option<ROS2DiscoveryEvent> {
-        use ROS2DiscoveryEvent::DiscoveredTopicSub;
+        use ROS2DiscoveryEvent::DiscoveredMsgSub;
         let node_fullname = self.fullname().to_string();
-        match self.topic_sub.entry(name.into()) {
-            Entry::Vacant(e) => match TopicSub::create(name.into(), typ, *reader) {
+        match self.msg_sub.entry(name.into()) {
+            Entry::Vacant(e) => match MsgSub::create(name.into(), typ, *reader) {
                 Ok(t) => {
                     e.insert(t.clone());
-                    Some(DiscoveredTopicSub(node_fullname, t))
+                    Some(DiscoveredMsgSub(node_fullname, t))
                 }
                 Err(e) => {
                     log::error!(
@@ -702,7 +702,7 @@ impl NodeInfo {
                         r#"ROS declaration of Subscriber "{v}" changed it's type to "{typ}""#
                     );
                     v.typ = typ;
-                    result = Some(DiscoveredTopicSub(node_fullname.clone(), v.clone()));
+                    result = Some(DiscoveredMsgSub(node_fullname.clone(), v.clone()));
                 }
                 if v.reader != *reader {
                     log::debug!(
@@ -710,7 +710,7 @@ impl NodeInfo {
                         v.reader
                     );
                     v.reader = *reader;
-                    result = Some(DiscoveredTopicSub(node_fullname, v.clone()));
+                    result = Some(DiscoveredMsgSub(node_fullname, v.clone()));
                 }
                 result
             }
@@ -1715,11 +1715,11 @@ impl NodeInfo {
         let node_fullname = self.fullname().to_string();
         let mut events = Vec::new();
 
-        for (_, v) in self.topic_pub.drain() {
-            events.push(UndiscoveredTopicPub(node_fullname.clone(), v))
+        for (_, v) in self.msg_pub.drain() {
+            events.push(UndiscoveredMsgPub(node_fullname.clone(), v))
         }
-        for (_, v) in self.topic_sub.drain() {
-            events.push(UndiscoveredTopicSub(node_fullname.clone(), v))
+        for (_, v) in self.msg_sub.drain() {
+            events.push(UndiscoveredMsgSub(node_fullname.clone(), v))
         }
         for (_, v) in self.service_srv.drain() {
             events.push(UndiscoveredServiceSrv(node_fullname.clone(), v))
@@ -1744,10 +1744,10 @@ impl NodeInfo {
     pub fn remove_reader(&mut self, reader: &Gid) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::*;
         let node_fullname = self.fullname().to_string();
-        if let Some((name, _)) = self.topic_sub.iter().find(|(_, v)| v.reader == *reader) {
-            return Some(UndiscoveredTopicSub(
+        if let Some((name, _)) = self.msg_sub.iter().find(|(_, v)| v.reader == *reader) {
+            return Some(UndiscoveredMsgSub(
                 node_fullname,
-                self.topic_sub.remove(&name.clone()).unwrap(),
+                self.msg_sub.remove(&name.clone()).unwrap(),
             ));
         }
         if let Some((name, _)) = self
@@ -1801,10 +1801,10 @@ impl NodeInfo {
     pub fn remove_writer(&mut self, writer: &Gid) -> Option<ROS2DiscoveryEvent> {
         use ROS2DiscoveryEvent::*;
         let node_fullname = self.fullname().to_string();
-        if let Some((name, _)) = self.topic_pub.iter().find(|(_, v)| v.writer == *writer) {
-            return Some(UndiscoveredTopicPub(
+        if let Some((name, _)) = self.msg_pub.iter().find(|(_, v)| v.writer == *writer) {
+            return Some(UndiscoveredMsgPub(
                 node_fullname,
-                self.topic_pub.remove(&name.clone()).unwrap(),
+                self.msg_pub.remove(&name.clone()).unwrap(),
             ));
         }
         if let Some((name, _)) = self

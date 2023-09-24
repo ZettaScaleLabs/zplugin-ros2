@@ -454,10 +454,10 @@ impl DiscoveredEntities {
 
 #[derive(Debug)]
 pub enum ROS2DiscoveryEvent {
-    DiscoveredTopicPub(String, TopicPub),
-    UndiscoveredTopicPub(String, TopicPub),
-    DiscoveredTopicSub(String, TopicSub),
-    UndiscoveredTopicSub(String, TopicSub),
+    DiscoveredMsgPub(String, MsgPub),
+    UndiscoveredMsgPub(String, MsgPub),
+    DiscoveredMsgSub(String, MsgSub),
+    UndiscoveredMsgSub(String, MsgSub),
     DiscoveredServiceSrv(String, ServiceSrv),
     UndiscoveredServiceSrv(String, ServiceSrv),
     DiscoveredServiceCli(String, ServiceCli),
@@ -472,10 +472,10 @@ impl ROS2DiscoveryEvent {
     pub fn node_name(&self) -> &str {
         use ROS2DiscoveryEvent::*;
         match self {
-            DiscoveredTopicPub(node, _)
-            | UndiscoveredTopicPub(node, _)
-            | DiscoveredTopicSub(node, _)
-            | UndiscoveredTopicSub(node, _)
+            DiscoveredMsgPub(node, _)
+            | UndiscoveredMsgPub(node, _)
+            | DiscoveredMsgSub(node, _)
+            | UndiscoveredMsgSub(node, _)
             | DiscoveredServiceSrv(node, _)
             | UndiscoveredServiceSrv(node, _)
             | DiscoveredServiceCli(node, _)
@@ -490,8 +490,8 @@ impl ROS2DiscoveryEvent {
     pub fn interface_name(&self) -> &str {
         use ROS2DiscoveryEvent::*;
         match self {
-            DiscoveredTopicPub(_, iface) | UndiscoveredTopicPub(_, iface) => &iface.name,
-            DiscoveredTopicSub(_, iface) | UndiscoveredTopicSub(_, iface) => &iface.name,
+            DiscoveredMsgPub(_, iface) | UndiscoveredMsgPub(_, iface) => &iface.name,
+            DiscoveredMsgSub(_, iface) | UndiscoveredMsgSub(_, iface) => &iface.name,
             DiscoveredServiceSrv(_, iface) | UndiscoveredServiceSrv(_, iface) => &iface.name,
             DiscoveredServiceCli(_, iface) | UndiscoveredServiceCli(_, iface) => &iface.name,
             DiscoveredActionSrv(_, iface) | UndiscoveredActionSrv(_, iface) => &iface.name,
@@ -504,14 +504,14 @@ impl fmt::Display for ROS2DiscoveryEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ROS2DiscoveryEvent::*;
         match self {
-            DiscoveredTopicPub(node, iface) => write!(f, "Node {node} declares {iface}"),
-            DiscoveredTopicSub(node, iface) => write!(f, "Node {node} declares {iface}"),
+            DiscoveredMsgPub(node, iface) => write!(f, "Node {node} declares {iface}"),
+            DiscoveredMsgSub(node, iface) => write!(f, "Node {node} declares {iface}"),
             DiscoveredServiceSrv(node, iface) => write!(f, "Node {node} declares {iface}"),
             DiscoveredServiceCli(node, iface) => write!(f, "Node {node} declares {iface}"),
             DiscoveredActionSrv(node, iface) => write!(f, "Node {node} declares {iface}"),
             DiscoveredActionCli(node, iface) => write!(f, "Node {node} declares {iface}"),
-            UndiscoveredTopicPub(node, iface) => write!(f, "Node {node} undeclares {iface}"),
-            UndiscoveredTopicSub(node, iface) => write!(f, "Node {node} undeclares {iface}"),
+            UndiscoveredMsgPub(node, iface) => write!(f, "Node {node} undeclares {iface}"),
+            UndiscoveredMsgSub(node, iface) => write!(f, "Node {node} undeclares {iface}"),
             UndiscoveredServiceSrv(node, iface) => write!(f, "Node {node} undeclares {iface}"),
             UndiscoveredServiceCli(node, iface) => write!(f, "Node {node} undeclares {iface}"),
             UndiscoveredActionSrv(node, iface) => write!(f, "Node {node} undeclares {iface}"),

@@ -308,7 +308,6 @@ impl<'a> ROS2PluginRuntime<'a> {
         self.admin_space
             .insert(&admin_prefix / ke_for_sure!("version"), AdminRef::Version);
 
-
         // Create and start DiscoveryManager
         let (tx, discovery_rcv): (Sender<ROS2DiscoveryEvent>, Receiver<ROS2DiscoveryEvent>) =
             unbounded();
@@ -366,7 +365,7 @@ impl<'a> ROS2PluginRuntime<'a> {
                                 let plugin_id = parsed.plugin_id().map(ToOwned::to_owned);
                                 match plugin_id {
                                     Some(plugin_id) if plugin_id != self.plugin_id => {
-                                        println!("==> Rcv TopicPub liveliness: {ke}");
+                                        println!("==> Rcv MsgPub liveliness: {ke}");
                                     }
                                     _ => ()
                                 }
@@ -375,7 +374,7 @@ impl<'a> ROS2PluginRuntime<'a> {
                                 let plugin_id = parsed.plugin_id().map(ToOwned::to_owned);
                                 match plugin_id {
                                     Some(plugin_id) if plugin_id != self.plugin_id => {
-                                        println!("==> Rcv TopicSub liveliness: {ke}");
+                                        println!("==> Rcv MsgSub liveliness: {ke}");
                                     }
                                     _ => ()
                                 }
@@ -383,23 +382,6 @@ impl<'a> ROS2PluginRuntime<'a> {
                             } else {
                                 log::warn!("Received unexpected Liveliness key expression '{}'", ke);
                             }
-
-
-
-
-                            // let ke_parsed = ke_liveliness_plugin::parse(evt.key_expr.as_keyexpr());
-                            // let plugin_id = ke_parsed.map(|p| p.plugin_id().map(ToOwned::to_owned));
-                            // match (plugin_id, evt.kind) {
-                            //     (Ok(Some(plugin_id)), SampleKind::Put) if plugin_id != self.plugin_id => {
-                            //         log::info!("New zenoh_ros2_plugin detected: {}", plugin_id);
-                            //     }
-                            //     (Ok(Some(plugin_id)), SampleKind::Delete) if plugin_id != self.plugin_id => {
-                            //         log::debug!("Remote zenoh_ros2_plugin left: {}", plugin_id);
-                            //     }
-                            //     (Ok(Some(_)), _) => (),
-                            //     (Ok(None), _) | (Err(_), _) =>
-                            //     log::warn!("Error receiving GroupEvent: invalid keyexpr '{}'", evt.key_expr)
-                            // }
                         },
                         Err(e) => log::warn!("Error receiving GroupEvent: {}", e)
                     }
@@ -424,8 +406,8 @@ impl<'a> ROS2PluginRuntime<'a> {
         if let Some(allowance) = &self.config.allowance {
             use ROS2DiscoveryEvent::*;
             match evt {
-                DiscoveredTopicPub(_, iface) => allowance.is_publisher_allowed(&iface.name),
-                DiscoveredTopicSub(_, iface) => allowance.is_subscriber_allowed(&iface.name),
+                DiscoveredMsgPub(_, iface) => allowance.is_publisher_allowed(&iface.name),
+                DiscoveredMsgSub(_, iface) => allowance.is_subscriber_allowed(&iface.name),
                 DiscoveredServiceSrv(_, iface) => allowance.is_service_srv_allowed(&iface.name),
                 DiscoveredServiceCli(_, iface) => allowance.is_service_cli_allowed(&iface.name),
                 DiscoveredActionSrv(_, iface) => allowance.is_action_srv_allowed(&iface.name),

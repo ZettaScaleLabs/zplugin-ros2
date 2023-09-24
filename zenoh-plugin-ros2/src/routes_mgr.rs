@@ -14,8 +14,8 @@
 use crate::config::Config;
 use crate::discovered_entities::DiscoveredEntities;
 use crate::discovered_entities::ROS2DiscoveryEvent;
-use crate::node_info::TopicPub;
-use crate::node_info::TopicSub;
+use crate::node_info::MsgPub;
+use crate::node_info::MsgSub;
 use crate::qos_helpers::adapt_reader_qos_for_writer;
 use crate::qos_helpers::adapt_writer_qos_for_reader;
 use crate::qos_helpers::is_transient_local;
@@ -100,10 +100,10 @@ impl<'a> RoutesMgr<'a> {
     pub async fn update(&mut self, event: ROS2DiscoveryEvent) -> Result<(), String> {
         use ROS2DiscoveryEvent::*;
         match event {
-            DiscoveredTopicPub(node, iface) => {
+            DiscoveredMsgPub(node, iface) => {
                 self.update_route_publisher(&node, &iface).await?;
             }
-            UndiscoveredTopicPub(node, iface) => {
+            UndiscoveredMsgPub(node, iface) => {
                 if let Entry::Occupied(mut entry) = self.routes_publishers.entry(iface.name.clone())
                 {
                     let route = entry.get_mut();
@@ -116,10 +116,10 @@ impl<'a> RoutesMgr<'a> {
                     }
                 }
             }
-            DiscoveredTopicSub(node, iface) => {
+            DiscoveredMsgSub(node, iface) => {
                 self.update_route_subscriber(&node, &iface).await?;
             }
-            UndiscoveredTopicSub(node, iface) => {
+            UndiscoveredMsgSub(node, iface) => {
                 if let Entry::Occupied(mut entry) =
                     self.routes_subscribers.entry(iface.name.clone())
                 {
@@ -161,7 +161,7 @@ impl<'a> RoutesMgr<'a> {
         Ok(())
     }
 
-    async fn update_route_publisher(&mut self, node: &str, iface: &TopicPub) -> Result<(), String> {
+    async fn update_route_publisher(&mut self, node: &str, iface: &MsgPub) -> Result<(), String> {
         if let Some(route) = self.routes_publishers.get_mut(&iface.name) {
             route.add_local_node(node.into());
             log::debug!(
@@ -212,11 +212,7 @@ impl<'a> RoutesMgr<'a> {
         Ok(())
     }
 
-    async fn update_route_subscriber(
-        &mut self,
-        node: &str,
-        iface: &TopicSub,
-    ) -> Result<(), String> {
+    async fn update_route_subscriber(&mut self, node: &str, iface: &MsgSub) -> Result<(), String> {
         if let Some(route) = self.routes_subscribers.get_mut(&iface.name) {
             route.add_local_node(node.into());
             log::debug!(

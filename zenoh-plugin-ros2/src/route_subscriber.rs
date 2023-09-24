@@ -17,11 +17,11 @@ use cyclors::{
     ddsi_serdata_kind_SDK_DATA, ddsi_sertype, ddsrt_iov_len_t, ddsrt_iovec_t,
 };
 use serde::{Serialize, Serializer};
-use zenoh::liveliness::LivelinessToken;
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::{ffi::CStr, fmt, time::Duration};
+use zenoh::liveliness::LivelinessToken;
 use zenoh::prelude::*;
 use zenoh::query::ReplyKeyExpr;
 use zenoh::{prelude::r#async::AsyncResolve, subscriber::Subscriber};
