@@ -40,8 +40,10 @@ mod discovered_entities;
 mod discovery_mgr;
 mod events;
 mod gid;
+mod liveliness_mgt;
 mod node_info;
 mod qos_helpers;
+mod ros2_utils;
 mod ros_discovery;
 mod route_publisher;
 mod route_subscriber;
@@ -51,7 +53,9 @@ use dds_discovery::*;
 
 use crate::discovery_mgr::DiscoveryMgr;
 use crate::events::ROS2DiscoveryEvent;
-use crate::qos_helpers::key_expr_to_qos;
+use crate::liveliness_mgt::{
+    ke_liveliness_all, ke_liveliness_plugin, parse_ke_liveliness_pub, parse_ke_liveliness_sub,
+};
 use crate::routes_mgr::RoutesMgr;
 
 pub const GIT_VERSION: &str = git_version!(prefix = "v", cargo_prefix = "v");
@@ -81,12 +85,6 @@ zenoh::kedefine!(
 
     // Admin prefix of this bridge
     pub ke_admin_prefix: "@ros2/${plugin_id:*}/",
-
-    // Liveliness tokens key expressions
-    pub ke_liveliness_all: "@ros2_lv/${plugin_id:*}/${remaining:**}",
-    pub ke_liveliness_plugin: "@ros2_lv/${plugin_id:*}",
-    pub(crate) ke_liveliness_pub: "@ros2_lv/${plugin_id:*}/MP/${ke:**}/${typ:*}/${qos_ke:*}",
-    pub(crate) ke_liveliness_sub: "@ros2_lv/${plugin_id:*}/MS/${ke:**}/${typ:*}/${qos_ke:*}",
 );
 
 // CycloneDDS' localhost-only: set network interface address (shortened form of config would be
@@ -346,7 +344,8 @@ impl<'a> ROS2PluginRuntime<'a> {
                         Ok(evt) => {
                             if self.is_allowed(&evt) {
                                 log::info!("{evt} - Allowed");
-                                if let Err(e) = routes_mgr.update(evt).await {
+                                // pass ROS2DiscoveryEvent to RoutesMgr
+                                if let Err(e) = routes_mgr.on_ros_discovery_event(evt).await {
                                     log::warn!("Error updating route: {e}");
                                 }
                             } else {
@@ -369,13 +368,18 @@ impl<'a> ROS2PluginRuntime<'a> {
                                     continue;
                                 }
                                 match (parsed.remaining(), evt.kind)  {
+                                    // New remote bridge detected
                                     (None, SampleKind::Put) => log::info!("New ROS 2 bridge detected: {}", plugin_id),
+                                    // New remote bridge left
                                     (None, SampleKind::Delete) => log::info!("Remote ROS 2 bridge left: {}", plugin_id),
+                                    // the liveliness token corresponds to a ROS2 announcement
                                     (Some(remaining), _) => {
-                                        // the liveliness token corresponds to a ROS2 announcement
+                                        // parse it and pass ROS2AnnouncementEvent to RoutesMgr
                                         match self.parse_announcement_event(ke, &remaining.as_str()[..3], evt.kind) {
                                             Ok(evt) => {
                                                 log::info!("Remote bridge {plugin_id} {evt}");
+                                                routes_mgr.on_ros_announcement_event(evt).await
+                                                    .unwrap_or_else(|e| log::warn!("Error treating announcement event: {e}"));
                                             },
                                             Err(e) =>
                                                 log::warn!("Received unexpected liveliness key expression '{ke}': {e}")
@@ -414,58 +418,40 @@ impl<'a> ROS2PluginRuntime<'a> {
         use ROS2AnnouncementEvent::*;
         log::debug!("Received liveliness event: {sample_kind} on {liveliness_ke}");
         match (iface_kind, sample_kind) {
-            ("MP/", SampleKind::Put) => {
-                ke_liveliness_pub::parse(liveliness_ke)
-                    .map_err(|e| e.to_string())
-                    .and_then(|parsed| {
-                        match (parsed.ke(), parsed.typ(), parsed.qos_ke()) {
-                            (Some(ke), Some(typ), Some(qos_ke)) => {
-                                match key_expr_to_qos(qos_ke) {
-                                    Ok((keyless, writer_qos)) => Ok(AnnouncedMsgPub { liveliness_ke: liveliness_ke.to_owned(), route_ke: ke.to_owned(), ros2_type: typ.to_string(), keyless, writer_qos }),
-                                    Err(e) => Err(format!("failed to parse AnnouncedMsgPub within because of QoS keyexpr '{qos_ke}' - {e}"))
-                                }
-                            }
-                            _ => Err("failed to parse AnnouncedMsgPub within".to_string())
-                        }
-                })
-            },
-            ("MP/", SampleKind::Delete) => {
-                // check is keyexpr is valid
-                ke_liveliness_pub::parse(liveliness_ke)
-                    .map_err(|e| e.to_string())
-                    .and_then(|parsed| {
-                        match parsed.ke() {
-                            Some(ke) => Ok(RetiredMsgPub { liveliness_ke: liveliness_ke.to_owned(), route_ke: ke.to_owned() }),
-                            None => Err("failed to parse RetiredMsgPub within".to_string())
-                        }
-                })
-            }
-            ("MS/", SampleKind::Put) => {
-                ke_liveliness_sub::parse(liveliness_ke)
-                    .map_err(|e| e.to_string())
-                    .and_then(|parsed| {
-                        match (parsed.ke(), parsed.typ(), parsed.qos_ke()) {
-                            (Some(ke), Some(typ), Some(qos_ke)) => {
-                                match key_expr_to_qos(qos_ke) {
-                                    Ok((keyless, reader_qos)) => Ok(AnnouncedMsgSub { liveliness_ke: liveliness_ke.to_owned(), route_ke: ke.to_owned(), ros2_type: typ.to_string(), keyless, reader_qos }),
-                                    Err(e) => Err(format!("failed to parse AnnouncedMsgSub within because of QoS keyexpr '{qos_ke}' - {e}"))
-                                }
-                            }
-                            _ => Err("failed to parse AnnouncedMsgSub within".to_string())
-                        }
-                })
-            }
-            ("MS/", SampleKind::Delete) => {
-                // check is keyexpr is valid
-                ke_liveliness_sub::parse(liveliness_ke)
-                    .map_err(|e| e.to_string())
-                    .and_then(|parsed| {
-                        match parsed.ke() {
-                            Some(ke) => Ok(RetiredMsgSub { liveliness_ke: liveliness_ke.to_owned(), route_ke: ke.to_owned() }),
-                            None => Err("failed to parse RetiredMsgPub within".to_string())
-                        }
-                })
-            }
+            ("MP/", SampleKind::Put) => parse_ke_liveliness_pub(liveliness_ke)
+                .map_err(|e| format!("Received invalid liveliness token: {e}"))
+                .map(
+                    |(plugin_id, zenoh_key_expr, ros2_type, keyless, writer_qos)| AnnouncedMsgPub {
+                        liveliness_ke: liveliness_ke.to_owned(),
+                        zenoh_key_expr,
+                        ros2_type,
+                        keyless,
+                        writer_qos,
+                    },
+                ),
+            ("MP/", SampleKind::Delete) => parse_ke_liveliness_pub(liveliness_ke)
+                .map_err(|e| format!("Received invalid liveliness token: {e}"))
+                .map(|(plugin_id, zenoh_key_expr, ..)| RetiredMsgPub {
+                    liveliness_ke: liveliness_ke.to_owned(),
+                    zenoh_key_expr,
+                }),
+            ("MS/", SampleKind::Put) => parse_ke_liveliness_sub(liveliness_ke)
+                .map_err(|e| format!("Received invalid liveliness token: {e}"))
+                .map(
+                    |(plugin_id, zenoh_key_expr, ros2_type, keyless, reader_qos)| AnnouncedMsgSub {
+                        liveliness_ke: liveliness_ke.to_owned(),
+                        zenoh_key_expr,
+                        ros2_type,
+                        keyless,
+                        reader_qos,
+                    },
+                ),
+            ("MS/", SampleKind::Delete) => parse_ke_liveliness_sub(liveliness_ke)
+                .map_err(|e| format!("Received invalid liveliness token: {e}"))
+                .map(|(plugin_id, zenoh_key_expr, ..)| RetiredMsgSub {
+                    liveliness_ke: liveliness_ke.to_owned(),
+                    zenoh_key_expr,
+                }),
             _ => Err(format!("invalid ROS2 interface kind: {iface_kind}")),
         }
     }
@@ -545,4 +531,11 @@ impl Timed for ChannelEvent {
             log::warn!("Error sending periodic timer notification on channel");
         };
     }
+}
+
+pub(crate) fn serialize_option_as_bool<S, T>(opt: &Option<T>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_bool(opt.is_some())
 }

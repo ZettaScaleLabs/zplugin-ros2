@@ -13,13 +13,12 @@
 //
 use crate::config::Config;
 use crate::discovered_entities::DiscoveredEntities;
+use crate::events::ROS2AnnouncementEvent;
 use crate::events::ROS2DiscoveryEvent;
 use crate::node_info::MsgPub;
 use crate::node_info::MsgSub;
 use crate::qos_helpers::adapt_reader_qos_for_writer;
 use crate::qos_helpers::adapt_writer_qos_for_reader;
-use crate::qos_helpers::is_transient_local;
-use crate::qos_helpers::is_writer_reliable;
 use crate::route_publisher::RoutePublisher;
 use crate::route_subscriber::RouteSubscriber;
 use cyclors::dds_entity_t;
@@ -28,11 +27,9 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
-use zenoh::liveliness::LivelinessToken;
 use zenoh::prelude::keyexpr;
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::OwnedKeyExpr;
-use zenoh::publication::CongestionControl;
 use zenoh::queryable::Query;
 use zenoh::sample::Sample;
 use zenoh::Session;
@@ -97,7 +94,10 @@ impl<'a> RoutesMgr<'a> {
         }
     }
 
-    pub async fn update(&mut self, event: ROS2DiscoveryEvent) -> Result<(), String> {
+    pub async fn on_ros_discovery_event(
+        &mut self,
+        event: ROS2DiscoveryEvent,
+    ) -> Result<(), String> {
         use ROS2DiscoveryEvent::*;
         match event {
             DiscoveredMsgPub(node, iface) => {
@@ -161,16 +161,36 @@ impl<'a> RoutesMgr<'a> {
         Ok(())
     }
 
-    async fn update_route_publisher(&mut self, node: &str, iface: &MsgPub) -> Result<(), String> {
-        if let Some(route) = self.routes_publishers.get_mut(&iface.name) {
-            route.add_local_node(node.into());
-            log::debug!(
-                "{route} already exists, now serving nodes {:?}",
-                route.local_nodes
-            );
-            return Ok(());
+    pub async fn on_ros_announcement_event(
+        &mut self,
+        event: ROS2AnnouncementEvent,
+    ) -> Result<(), String> {
+        use ROS2AnnouncementEvent::*;
+        match event {
+            AnnouncedMsgPub {
+                liveliness_ke,
+                zenoh_key_expr,
+                ros2_type,
+                keyless,
+                writer_qos,
+            } => {
+                // TODO: get or try to create route, then add remote.
+            }
+            AnnouncedMsgSub {
+                liveliness_ke,
+                zenoh_key_expr,
+                ros2_type,
+                keyless,
+                reader_qos,
+            } => {
+                // TODO: get or try to create route, then add remote.
+            }
+            _ => log::info!("... TODO: manage {event:?}"),
         }
+        Ok(())
+    }
 
+    async fn update_route_publisher(&mut self, node: &str, iface: &MsgPub) -> Result<(), String> {
         // Retrieve info on DDS Writer
         let entity = {
             let entities = zread!(self.discovered_entities);
@@ -183,45 +203,40 @@ impl<'a> RoutesMgr<'a> {
                 .clone()
         };
 
-        // Zenoh key expression to use for routing
-        // TODO: remap option ?
-        let ke = iface.name_as_keyexpr().to_owned();
+        let route = match self.routes_publishers.entry(iface.name.clone()) {
+            Entry::Vacant(entry) => {
+                // create route
+                let mut route = RoutePublisher::create(
+                    &self.config,
+                    &self.zsession,
+                    self.participant,
+                    iface.name.clone(),
+                    iface.typ.clone(),
+                    iface.name_as_keyexpr().to_owned(),
+                    &None,
+                    entity.keyless,
+                    adapt_writer_qos_for_reader(&entity.qos),
+                )
+                .await?;
+                log::info!("{route} created");
 
-        // create route
-        let mut route = RoutePublisher::create(
-            &self.config,
-            &self.plugin_id,
-            &self.zsession,
-            self.participant,
-            iface.name.clone(),
-            iface.typ.clone(),
-            entity,
-            ke,
-        )
-        .await?;
-        route.add_local_node(node.into());
-        log::info!("{route} created");
+                // insert reference in admin_space
+                let admin_ke = *KE_PREFIX_ROUTE_PUBLISHER / iface.name_as_keyexpr();
+                self.admin_space
+                    .insert(admin_ke, RouteRef::PublisherRoute(iface.name.clone()));
+                entry.insert(route)
+            }
+            Entry::Occupied(entry) => entry.into_mut(),
+        };
 
-        // insert reference in admin_space
-        let admin_ke = *KE_PREFIX_ROUTE_PUBLISHER / iface.name_as_keyexpr();
-        self.admin_space
-            .insert(admin_ke, RouteRef::PublisherRoute(iface.name.clone()));
-
-        // insert route in routes_publishers map
-        self.routes_publishers.insert(iface.name.clone(), route);
+        route
+            .add_local_node(node.into(), &self.plugin_id, &entity.qos)
+            .await;
+        log::debug!("{route} now serving nodes {:?}", route.local_nodes);
         Ok(())
     }
 
     async fn update_route_subscriber(&mut self, node: &str, iface: &MsgSub) -> Result<(), String> {
-        if let Some(route) = self.routes_subscribers.get_mut(&iface.name) {
-            route.add_local_node(node.into());
-            log::debug!(
-                "{route} already exists, now serving nodes {:?}",
-                route.local_nodes
-            );
-            return Ok(());
-        }
-
         // Retrieve info on DDS Reader
         let entity = {
             let entities = zread!(self.discovered_entities);
@@ -234,32 +249,34 @@ impl<'a> RoutesMgr<'a> {
                 .clone()
         };
 
-        // Zenoh key expression to use for routing
-        // TODO: remap option ?
-        let ke = iface.name_as_keyexpr().to_owned();
+        let route = match self.routes_subscribers.entry(iface.name.clone()) {
+            Entry::Vacant(entry) => {
+                // create route
+                let route = RouteSubscriber::create(
+                    &self.zsession,
+                    self.participant,
+                    iface.name.clone(),
+                    iface.typ.clone(),
+                    iface.name_as_keyexpr().to_owned(),
+                    entity.keyless,
+                    adapt_reader_qos_for_writer(&entity.qos),
+                )
+                .await?;
+                log::info!("{route} created");
 
-        // create route
-        let mut route = RouteSubscriber::create(
-            &self.config,
-            &self.plugin_id,
-            &self.zsession,
-            self.participant,
-            iface.name.clone(),
-            iface.typ.clone(),
-            entity,
-            ke,
-        )
-        .await?;
-        route.add_local_node(node.into());
-        log::info!("{route} created");
+                // insert reference in admin_space
+                let admin_ke = *KE_PREFIX_ROUTE_SUBSCRIBER / iface.name_as_keyexpr();
+                self.admin_space
+                    .insert(admin_ke, RouteRef::SubscriberRoute(iface.name.clone()));
+                entry.insert(route)
+            }
+            Entry::Occupied(entry) => entry.into_mut(),
+        };
 
-        // insert reference in admin_space
-        let admin_ke = *KE_PREFIX_ROUTE_SUBSCRIBER / iface.name_as_keyexpr();
-        self.admin_space
-            .insert(admin_ke, RouteRef::SubscriberRoute(iface.name.clone()));
-
-        // insert route in routes_publishers map
-        self.routes_subscribers.insert(iface.name.clone(), route);
+        route
+            .add_local_node(node.into(), &self.config, &self.plugin_id, &entity.qos)
+            .await;
+        log::debug!("{route} now serving nodes {:?}", route.local_nodes);
         Ok(())
     }
 

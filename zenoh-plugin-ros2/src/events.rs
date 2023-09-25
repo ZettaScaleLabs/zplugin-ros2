@@ -93,61 +93,61 @@ impl std::fmt::Display for ROS2DiscoveryEvent {
 pub enum ROS2AnnouncementEvent {
     AnnouncedMsgPub {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
         keyless: bool,
         writer_qos: Qos,
     },
     RetiredMsgPub {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedMsgSub {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
         keyless: bool,
         reader_qos: Qos,
     },
     RetiredMsgSub {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedServiceSrv {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
     },
     RetiredServiceSrv {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedServiceCli {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
     },
     RetiredServiceCli {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedActionSrv {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
     },
     RetiredActionSrv {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedActionCli {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
     },
     RetiredActionCli {
         liveliness_ke: OwnedKeyExpr,
-        route_ke: OwnedKeyExpr,
+        zenoh_key_expr: OwnedKeyExpr,
     },
 }
 
@@ -155,18 +155,40 @@ impl Display for ROS2AnnouncementEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use ROS2AnnouncementEvent::*;
         match self {
-            AnnouncedMsgPub{ route_ke, ..} => write!(f, "announces Publisher {route_ke}"),
-            AnnouncedMsgSub{ route_ke, ..} => write!(f, "announces Subscriber {route_ke}"),
-            AnnouncedServiceSrv{ route_ke, ..} => write!(f, "announces Service Server {route_ke}"),
-            AnnouncedServiceCli{ route_ke, ..} => write!(f, "announces Service Client {route_ke}"),
-            AnnouncedActionSrv{ route_ke, ..} => write!(f, "announces Action Server {route_ke}"),
-            AnnouncedActionCli{ route_ke, ..} => write!(f, "announces Action Client {route_ke}"),
-            RetiredMsgPub{ route_ke, ..} => write!(f, "retires Publisher {route_ke}"),
-            RetiredMsgSub{ route_ke, ..} => write!(f, "retires Subscriber {route_ke}"),
-            RetiredServiceSrv{ route_ke, ..} => write!(f, "retires Service Server {route_ke}"),
-            RetiredServiceCli{ route_ke, ..} => write!(f, "retires Service Client {route_ke}"),
-            RetiredActionSrv{ route_ke, ..} => write!(f, "retires Action Server {route_ke}"),
-            RetiredActionCli{ route_ke, ..} => write!(f, "retires Action Client {route_ke}"),
+            AnnouncedMsgPub { zenoh_key_expr, .. } => {
+                write!(f, "announces Publisher {zenoh_key_expr}")
+            }
+            AnnouncedMsgSub { zenoh_key_expr, .. } => {
+                write!(f, "announces Subscriber {zenoh_key_expr}")
+            }
+            AnnouncedServiceSrv { zenoh_key_expr, .. } => {
+                write!(f, "announces Service Server {zenoh_key_expr}")
+            }
+            AnnouncedServiceCli { zenoh_key_expr, .. } => {
+                write!(f, "announces Service Client {zenoh_key_expr}")
+            }
+            AnnouncedActionSrv { zenoh_key_expr, .. } => {
+                write!(f, "announces Action Server {zenoh_key_expr}")
+            }
+            AnnouncedActionCli { zenoh_key_expr, .. } => {
+                write!(f, "announces Action Client {zenoh_key_expr}")
+            }
+            RetiredMsgPub { zenoh_key_expr, .. } => write!(f, "retires Publisher {zenoh_key_expr}"),
+            RetiredMsgSub { zenoh_key_expr, .. } => {
+                write!(f, "retires Subscriber {zenoh_key_expr}")
+            }
+            RetiredServiceSrv { zenoh_key_expr, .. } => {
+                write!(f, "retires Service Server {zenoh_key_expr}")
+            }
+            RetiredServiceCli { zenoh_key_expr, .. } => {
+                write!(f, "retires Service Client {zenoh_key_expr}")
+            }
+            RetiredActionSrv { zenoh_key_expr, .. } => {
+                write!(f, "retires Action Server {zenoh_key_expr}")
+            }
+            RetiredActionCli { zenoh_key_expr, .. } => {
+                write!(f, "retires Action Client {zenoh_key_expr}")
+            }
         }
     }
 }
