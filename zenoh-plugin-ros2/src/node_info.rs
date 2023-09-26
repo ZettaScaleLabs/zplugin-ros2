@@ -426,11 +426,9 @@ impl NodeInfo {
         // Check is resulting id is a valid key expression
         if let Err(e) = KeyExpr::try_from(&id) {
             return Err(format!(
-                "Incompatible ROS Node: '{id}' cannot be converted as a Zenoh key expression"
+                "Incompatible ROS Node: '{id}' cannot be converted as a Zenoh key expression: {e}"
             ));
         }
-
-        let f = id.get(fullname.clone()).unwrap();
 
         Ok(NodeInfo {
             id,

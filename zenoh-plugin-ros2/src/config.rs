@@ -19,7 +19,8 @@ use std::fmt;
 use std::time::Duration;
 use zenoh::prelude::*;
 
-pub const DEFAULT_NODENAME: &str = "zenoh-bridge-ros2";
+pub const DEFAULT_NAMESPACE: &str = "/";
+pub const DEFAULT_NODENAME: &str = "zenoh_bridge_ros2";
 pub const DEFAULT_DOMAIN: u32 = 0;
 pub const DEFAULT_RELIABLE_ROUTES_BLOCKING: bool = true;
 pub const DEFAULT_QUERIES_TIMEOUT: f32 = 5.0;
@@ -30,8 +31,8 @@ pub const DEFAULT_DDS_LOCALHOST_ONLY: bool = false;
 pub struct Config {
     #[serde(default)]
     pub id: Option<OwnedKeyExpr>,
-    #[serde(default)]
-    pub namespace: Option<OwnedKeyExpr>,
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
     #[serde(default = "default_nodename")]
     pub nodename: OwnedKeyExpr,
     #[serde(default = "default_domain")]
@@ -200,6 +201,10 @@ pub struct ROS2InterfacesRegex {
         skip_serializing_if = "Option::is_none"
     )]
     pub action_clients: Option<Regex>,
+}
+
+fn default_namespace() -> String {
+    DEFAULT_NAMESPACE.to_string()
 }
 
 fn default_nodename() -> OwnedKeyExpr {

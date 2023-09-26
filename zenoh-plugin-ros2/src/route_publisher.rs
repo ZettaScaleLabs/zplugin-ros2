@@ -23,6 +23,7 @@ use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
 use zenoh_ext::{PublicationCache, SessionExt};
 
+use crate::gid::Gid;
 use crate::liveliness_mgt::new_ke_liveliness_pub;
 use crate::ros2_utils::ros2_message_type_to_dds_type;
 use crate::serialize_option_as_bool;
@@ -31,22 +32,6 @@ use crate::{dds_discovery::*, qos_helpers::*, Config, KE_PREFIX_PUB_CACHE};
 enum ZPublisher<'a> {
     Publisher(KeyExpr<'a>),
     PublicationCache(PublicationCache<'a>),
-}
-
-impl ZPublisher<'_> {
-    fn key_expr(&self) -> &KeyExpr<'_> {
-        match self {
-            ZPublisher::Publisher(k) => k,
-            ZPublisher::PublicationCache(p) => p.key_expr(),
-        }
-    }
-}
-
-fn serialize_zpublisher<S>(zpub: &ZPublisher, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    s.serialize_str(zpub.key_expr().as_str())
 }
 
 // a route from DDS to Zenoh
@@ -285,7 +270,7 @@ impl RoutePublisher<'_> {
     }
 
     #[inline]
-    pub fn dds_reader_guid(&self) -> Result<String, String> {
+    pub fn dds_reader_guid(&self) -> Result<Gid, String> {
         get_guid(&self.dds_reader)
     }
 
@@ -300,13 +285,6 @@ impl RoutePublisher<'_> {
     pub fn remove_remote_route(&mut self, plugin_id: &str, zenoh_key_expr: &keyexpr) {
         self.remote_routes
             .remove(&format!("{plugin_id}:{zenoh_key_expr}"));
-        log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
-    }
-
-    /// Remove all routes reference with admin keyexpr containing "sub_ke"
-    #[inline]
-    pub fn remove_remote_routes(&mut self, sub_ke: &str) {
-        self.remote_routes.retain(|s| !s.contains(sub_ke));
         log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
     }
 

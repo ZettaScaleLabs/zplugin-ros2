@@ -696,12 +696,12 @@ pub fn delete_dds_entity(entity: dds_entity_t) -> Result<(), String> {
     }
 }
 
-pub fn get_guid(entity: &dds_entity_t) -> Result<String, String> {
+pub fn get_guid(entity: &dds_entity_t) -> Result<Gid, String> {
     unsafe {
         let mut guid = dds_guid_t { v: [0; 16] };
         let r = dds_get_guid(*entity, &mut guid);
         if r == 0 {
-            Ok(hex::encode(guid.v))
+            Ok(Gid::from(guid.v))
         } else {
             Err(format!("Error getting GUID of DDS entity - retcode={r}"))
         }
@@ -713,7 +713,7 @@ where
     S: Serializer,
 {
     match get_guid(entity) {
-        Ok(guid) => s.serialize_str(&guid),
+        Ok(guid) => s.serialize_str(&guid.to_string()),
         Err(_) => s.serialize_str("UNKOWN_GUID"),
     }
 }

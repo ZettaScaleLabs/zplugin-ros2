@@ -27,6 +27,7 @@ use zenoh::query::ReplyKeyExpr;
 use zenoh::{prelude::r#async::AsyncResolve, subscriber::Subscriber};
 use zenoh_ext::{FetchingSubscriber, SubscriberBuilderExt};
 
+use crate::gid::Gid;
 use crate::liveliness_mgt::new_ke_liveliness_sub;
 use crate::qos_helpers::is_transient_local;
 use crate::ros2_utils::ros2_message_type_to_dds_type;
@@ -280,7 +281,7 @@ impl RouteSubscriber<'_> {
     }
 
     #[inline]
-    pub fn dds_writer_guid(&self) -> Result<String, String> {
+    pub fn dds_writer_guid(&self) -> Result<Gid, String> {
         get_guid(&self.dds_writer)
     }
 
@@ -295,13 +296,6 @@ impl RouteSubscriber<'_> {
     pub fn remove_remote_route(&mut self, plugin_id: &str, zenoh_key_expr: &keyexpr) {
         self.remote_routes
             .remove(&format!("{plugin_id}:{zenoh_key_expr}"));
-        log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
-    }
-
-    /// Remove all Writers reference with admin keyexpr containing "sub_ke"
-    #[inline]
-    pub fn remove_remote_routes(&mut self, sub_ke: &str) {
-        self.remote_routes.retain(|s| !s.contains(sub_ke));
         log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
     }
 

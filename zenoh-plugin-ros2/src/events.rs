@@ -36,38 +36,6 @@ pub enum ROS2DiscoveryEvent {
     UndiscoveredActionCli(String, ActionCli),
 }
 
-impl ROS2DiscoveryEvent {
-    pub fn node_name(&self) -> &str {
-        use ROS2DiscoveryEvent::*;
-        match self {
-            DiscoveredMsgPub(node, _)
-            | UndiscoveredMsgPub(node, _)
-            | DiscoveredMsgSub(node, _)
-            | UndiscoveredMsgSub(node, _)
-            | DiscoveredServiceSrv(node, _)
-            | UndiscoveredServiceSrv(node, _)
-            | DiscoveredServiceCli(node, _)
-            | UndiscoveredServiceCli(node, _)
-            | DiscoveredActionSrv(node, _)
-            | UndiscoveredActionSrv(node, _)
-            | DiscoveredActionCli(node, _)
-            | UndiscoveredActionCli(node, _) => &node,
-        }
-    }
-
-    pub fn interface_name(&self) -> &str {
-        use ROS2DiscoveryEvent::*;
-        match self {
-            DiscoveredMsgPub(_, iface) | UndiscoveredMsgPub(_, iface) => &iface.name,
-            DiscoveredMsgSub(_, iface) | UndiscoveredMsgSub(_, iface) => &iface.name,
-            DiscoveredServiceSrv(_, iface) | UndiscoveredServiceSrv(_, iface) => &iface.name,
-            DiscoveredServiceCli(_, iface) | UndiscoveredServiceCli(_, iface) => &iface.name,
-            DiscoveredActionSrv(_, iface) | UndiscoveredActionSrv(_, iface) => &iface.name,
-            DiscoveredActionCli(_, iface) | UndiscoveredActionCli(_, iface) => &iface.name,
-        }
-    }
-}
-
 impl std::fmt::Display for ROS2DiscoveryEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use ROS2DiscoveryEvent::*;

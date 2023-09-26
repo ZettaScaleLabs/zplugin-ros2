@@ -1,3 +1,4 @@
+use crate::{ChannelEvent, ROS_DISCOVERY_INFO_PUSH_INTERVAL_MS};
 //
 // Copyright (c) 2022 ZettaScale Technology
 //
@@ -11,17 +12,23 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use crate::dds_discovery::{delete_dds_entity, DDSRawSample};
+use crate::dds_discovery::{delete_dds_entity, get_guid, DDSRawSample};
 use crate::gid::Gid;
+use async_std::task;
 use cdr::{CdrLe, Infinite};
 use cyclors::qos::{
     Durability, History, IgnoreLocal, IgnoreLocalKind, Qos, Reliability, DDS_INFINITE_TIME,
 };
 use cyclors::*;
-use log::warn;
+use flume::{unbounded, Receiver, Sender};
+use futures::select;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::HashSet;
 use std::convert::TryInto;
+use std::sync::Arc;
+use std::sync::RwLock;
+use std::time::Duration;
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
@@ -29,6 +36,8 @@ use std::{
 };
 use zenoh::buffers::ZBuf;
 use zenoh::prelude::HasReader;
+use zenoh_core::zwrite;
+use zenoh_util::{TimedEvent, Timer};
 
 pub const ROS_DISCOVERY_INFO_TOPIC_NAME: &str = "ros_discovery_info";
 const ROS_DISCOVERY_INFO_TOPIC_TYPE: &str = "rmw_dds_common::msg::dds_::ParticipantEntitiesInfo_";
@@ -36,27 +45,38 @@ const ROS_DISCOVERY_INFO_TOPIC_TYPE: &str = "rmw_dds_common::msg::dds_::Particip
 pub struct RosDiscoveryInfoMgr {
     reader: dds_entity_t,
     writer: dds_entity_t,
+    // This bridge Node fullname, as used as index in participant_entities_info.node_entities_info_seq
+    node_fullname: String,
+    // The ParticipantEntitiesInfo to publish on "ros_discovery_info" topic when changed,
+    // plus a bool indicating if it changed
+    participant_entities_state: Arc<RwLock<(ParticipantEntitiesInfo, bool)>>,
 }
 
 impl Drop for RosDiscoveryInfoMgr {
     fn drop(&mut self) {
         if let Err(e) = delete_dds_entity(self.reader) {
-            warn!(
+            log::warn!(
                 "Error dropping DDS reader on {}: {}",
-                ROS_DISCOVERY_INFO_TOPIC_NAME, e
+                ROS_DISCOVERY_INFO_TOPIC_NAME,
+                e
             );
         }
         if let Err(e) = delete_dds_entity(self.writer) {
-            warn!(
+            log::warn!(
                 "Error dropping DDS writer on {}: {}",
-                ROS_DISCOVERY_INFO_TOPIC_NAME, e
+                ROS_DISCOVERY_INFO_TOPIC_NAME,
+                e
             );
         }
     }
 }
 
 impl RosDiscoveryInfoMgr {
-    pub fn create(participant: dds_entity_t) -> Result<RosDiscoveryInfoMgr, String> {
+    pub fn new(
+        participant: dds_entity_t,
+        namespace: &str,
+        node_name: &str,
+    ) -> Result<RosDiscoveryInfoMgr, String> {
         let cton = CString::new(ROS_DISCOVERY_INFO_TOPIC_NAME)
             .unwrap()
             .into_raw();
@@ -130,8 +150,96 @@ impl RosDiscoveryInfoMgr {
             drop(CString::from_raw(cton));
             drop(CString::from_raw(ctyn));
 
-            Ok(RosDiscoveryInfoMgr { reader, writer })
+            let gid = get_guid(&participant)?;
+            let mut participant_entities_info = ParticipantEntitiesInfo::new(gid);
+            let node_info = NodeEntitiesInfo::new(namespace.to_string(), node_name.to_string());
+            let node_fullname = node_info.to_string();
+            participant_entities_info
+                .node_entities_info_seq
+                .insert(node_fullname.clone(), node_info);
+            log::error!("Initial 'ros_discovery_info': {participant_entities_info}");
+
+            Ok(RosDiscoveryInfoMgr {
+                reader,
+                writer,
+                node_fullname,
+                participant_entities_state: Arc::new(RwLock::new((
+                    participant_entities_info,
+                    true,
+                ))),
+            })
         }
+    }
+
+    pub async fn run(&self) {
+        let writer = self.writer;
+        let participant_entities_state = self.participant_entities_state.clone();
+        task::spawn(async move {
+            // Timer for periodic write of "ros_discovery_info" topic
+            let timer = Timer::default();
+            let (tx, ros_disco_timer_rcv): (Sender<()>, Receiver<()>) = unbounded();
+            let ros_disco_timer_event = TimedEvent::periodic(
+                Duration::from_millis(ROS_DISCOVERY_INFO_PUSH_INTERVAL_MS),
+                ChannelEvent { tx },
+            );
+            timer.add_async(ros_disco_timer_event).await;
+
+            loop {
+                select!(
+                    _ = ros_disco_timer_rcv.recv_async() => {
+                        let (ref msg, ref mut has_changed) = *zwrite!(participant_entities_state);
+                        if *has_changed {
+                            log::debug!("Publish update on 'ros_discovery_info': {msg:?}");
+                            Self::write(writer, msg).unwrap_or_else(|e|
+                                log::error!("Failed to publish update on 'ros_discovery_info' topic: {e}")
+                            );
+                            *has_changed = false;
+                        }
+
+                    }
+                )
+            }
+        });
+    }
+
+    pub fn add_dds_writer(&self, gid: Gid) {
+        let (ref mut info, ref mut has_changed) = *zwrite!(self.participant_entities_state);
+        info.node_entities_info_seq
+            .get_mut(&self.node_fullname)
+            .unwrap()
+            .writer_gid_seq
+            .insert(gid);
+        *has_changed = true;
+    }
+
+    pub fn remove_dds_writer(&self, gid: Gid) {
+        let (ref mut info, ref mut has_changed) = *zwrite!(self.participant_entities_state);
+        info.node_entities_info_seq
+            .get_mut(&self.node_fullname)
+            .unwrap()
+            .writer_gid_seq
+            .remove(&gid);
+        *has_changed = true;
+    }
+
+    pub fn add_dds_reader(&self, gid: Gid) {
+        let (ref mut info, ref mut has_changed) = *zwrite!(self.participant_entities_state);
+        info.node_entities_info_seq
+            .get_mut(&self.node_fullname)
+            .unwrap()
+            .reader_gid_seq
+            .insert(gid);
+        *has_changed = true;
+    }
+
+    pub fn remove_dds_reader(&self, gid: Gid) {
+        let (ref mut info, ref mut has_changed) = *zwrite!(self.participant_entities_state);
+        info.node_entities_info_seq
+            .get_mut(&self.node_fullname)
+            .unwrap()
+            .reader_gid_seq
+            .remove(&gid);
+        *has_changed = true;
     }
 
     pub fn read(&self) -> Vec<ParticipantEntitiesInfo> {
@@ -172,7 +280,7 @@ impl RosDiscoveryInfoMgr {
                     ) {
                         Ok(i) => Some(i),
                         Err(e) => {
-                            warn!(
+                            log::warn!(
                                 "Error receiving ParticipantEntitiesInfo on ros_discovery_info: {}",
                                 e
                             );
@@ -184,13 +292,13 @@ impl RosDiscoveryInfoMgr {
         }
     }
 
-    pub fn write(&self, info: &ParticipantEntitiesInfo) -> Result<(), String> {
+    fn write(writer: dds_entity_t, info: &ParticipantEntitiesInfo) -> Result<(), String> {
         unsafe {
             let buf = cdr::serialize::<_, _, CdrLe>(info, Infinite)
                 .map_err(|e| format!("Error serializing ParticipantEntitiesInfo: {e}"))?;
 
             let mut sertype: *const ddsi_sertype = std::ptr::null_mut();
-            let ret = dds_get_entity_sertype(self.writer, &mut sertype);
+            let ret = dds_get_entity_sertype(writer, &mut sertype);
             if ret < 0 {
                 return Err(format!(
                     "Error creating payload for ParticipantEntitiesInfo: {}",
@@ -223,7 +331,7 @@ impl RosDiscoveryInfoMgr {
                 &data_out,
                 size as usize,
             );
-            dds_writecdr(self.writer, fwdp);
+            dds_writecdr(writer, fwdp);
             drop(Vec::from_raw_parts(ptr, len, capacity));
             Ok(())
         }
@@ -238,15 +346,24 @@ pub struct NodeEntitiesInfo {
         serialize_with = "serialize_ros_gids",
         deserialize_with = "deserialize_ros_gids"
     )]
-    pub reader_gid_seq: Vec<Gid>,
+    pub reader_gid_seq: HashSet<Gid>,
     #[serde(
         serialize_with = "serialize_ros_gids",
         deserialize_with = "deserialize_ros_gids"
     )]
-    pub writer_gid_seq: Vec<Gid>,
+    pub writer_gid_seq: HashSet<Gid>,
 }
 
 impl NodeEntitiesInfo {
+    pub fn new(node_namespace: String, node_name: String) -> NodeEntitiesInfo {
+        NodeEntitiesInfo {
+            node_namespace,
+            node_name,
+            reader_gid_seq: HashSet::new(),
+            writer_gid_seq: HashSet::new(),
+        }
+    }
+
     pub fn full_name(&self) -> String {
         format!(
             "{}/{}",
@@ -377,7 +494,7 @@ where
     }
 }
 
-fn serialize_ros_gids<S>(gids: &[Gid], serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_ros_gids<S>(gids: &HashSet<Gid>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -395,7 +512,7 @@ where
     seq.end()
 }
 
-fn deserialize_ros_gids<'de, D>(deserializer: D) -> Result<Vec<Gid>, D::Error>
+fn deserialize_ros_gids<'de, D>(deserializer: D) -> Result<HashSet<Gid>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -446,12 +563,12 @@ where
 }
 
 mod tests {
-    use super::*;
-    use std::ops::Deref;
-    use std::str::FromStr;
 
     #[test]
     fn test_serde() {
+        use super::*;
+        use std::str::FromStr;
+
         // ros_discovery_message sent by a component_container node started as such:
         //   - ros2 run rclcpp_components component_container --ros-args --remap __ns:=/TEST
         //   - ros2 component load /TEST/ComponentManager composition composition::Listener

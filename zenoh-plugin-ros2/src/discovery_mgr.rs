@@ -33,13 +33,18 @@ use crate::ROS_DISCOVERY_INFO_POLL_INTERVAL_MS;
 
 pub struct DiscoveryMgr {
     pub participant: dds_entity_t,
+    pub ros_discovery_mgr: Arc<RosDiscoveryInfoMgr>,
     pub discovered_entities: Arc<RwLock<DiscoveredEntities>>,
 }
 
 impl DiscoveryMgr {
-    pub fn create(participant: dds_entity_t) -> DiscoveryMgr {
+    pub fn create(
+        participant: dds_entity_t,
+        ros_discovery_mgr: Arc<RosDiscoveryInfoMgr>,
+    ) -> DiscoveryMgr {
         DiscoveryMgr {
             participant,
+            ros_discovery_mgr,
             discovered_entities: Arc::new(RwLock::new(Default::default())),
         }
     }
@@ -52,10 +57,7 @@ impl DiscoveryMgr {
         ) = unbounded();
         run_discovery(self.participant, dds_disco_snd);
 
-        // run ROS2 discovery (periodic polling)
-        let ros_disco_mgr = RosDiscoveryInfoMgr::create(self.participant)
-            .expect("Failed to create RosDiscoveryInfoMgr");
-
+        let ros_discovery_mgr = self.ros_discovery_mgr.clone();
         let discovered_entities = self.discovered_entities.clone();
 
         task::spawn(async move {
@@ -119,7 +121,7 @@ impl DiscoveryMgr {
                     }
 
                     _ = ros_disco_timer_rcv.recv_async() => {
-                        let infos = ros_disco_mgr.read();
+                        let infos = ros_discovery_mgr.read();
                         for part_info in infos {
                             log::debug!("Received ros_discovery_info from {}", part_info);
                             let evts = zwrite!(discovered_entities).update_participant_info(part_info);
@@ -127,8 +129,8 @@ impl DiscoveryMgr {
                                 if let Err(err) = evt_sender.try_send(e) {
                                     log::error!("Internal error: failed to send DDSDiscoveryEvent to main loop: {err}");
                                 }
+                            }
                         }
-                    }
                     }
                 )
             }

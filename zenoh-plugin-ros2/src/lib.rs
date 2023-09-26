@@ -56,6 +56,7 @@ use crate::events::ROS2DiscoveryEvent;
 use crate::liveliness_mgt::{
     ke_liveliness_all, ke_liveliness_plugin, parse_ke_liveliness_pub, parse_ke_liveliness_sub,
 };
+use crate::ros_discovery::RosDiscoveryInfoMgr;
 use crate::routes_mgr::RoutesMgr;
 
 pub const GIT_VERSION: &str = git_version!(prefix = "v", cargo_prefix = "v");
@@ -97,6 +98,7 @@ const CYCLONEDDS_CONFIG_LOCALHOST_ONLY: &str = r#"<CycloneDDS><Domain><General><
 const CYCLONEDDS_CONFIG_ENABLE_SHM: &str = r#"<CycloneDDS><Domain><SharedMemory><Enable>true</Enable></SharedMemory></Domain></CycloneDDS>,"#;
 
 const ROS_DISCOVERY_INFO_POLL_INTERVAL_MS: u64 = 100;
+const ROS_DISCOVERY_INFO_PUSH_INTERVAL_MS: u64 = 100;
 
 zenoh_plugin_trait::declare_plugin!(ROS2Plugin);
 
@@ -156,6 +158,28 @@ pub async fn run(runtime: Runtime, config: Config) {
     let _ = env_logger::try_init();
     log::debug!("ROS2 plugin {}", LONG_VERSION.as_str());
     log::info!("ROS2 plugin {:?}", config);
+
+    // Check config validity
+    if !regex::Regex::new("/[A-Za-z0-9_/]*")
+        .unwrap()
+        .is_match(&config.namespace)
+    {
+        log::error!(
+            r#"Configuration error: invalid namespace "{}" must contain only alphanumeric, '_' or '/' characters and start with '/'"#,
+            config.namespace
+        );
+        return;
+    }
+    if !regex::Regex::new("[A-Za-z0-9_]+")
+        .unwrap()
+        .is_match(&config.nodename)
+    {
+        log::error!(
+            r#"Configuration error: invalid nodename "{}" must contain only alphanumeric or '_' characters"#,
+            config.nodename
+        );
+        return;
+    }
 
     // open zenoh-net Session
     let zsession = match zenoh::init(runtime).res_async().await {
@@ -320,22 +344,33 @@ impl<'a> ROS2PluginRuntime<'a> {
         self.admin_space
             .insert(&admin_prefix / ke_for_sure!("version"), AdminRef::Version);
 
+        // Create and start the RosDiscoveryInfoMgr (managing ros_discovery_info topic)
+        let ros_discovery_mgr = Arc::new(
+            RosDiscoveryInfoMgr::new(
+                self.participant,
+                &self.config.namespace,
+                &self.config.nodename,
+            )
+            .expect("Failed to create RosDiscoveryInfoMgr"),
+        );
+        ros_discovery_mgr.run().await;
+
         // Create and start DiscoveryManager
         let (tx, discovery_rcv): (Sender<ROS2DiscoveryEvent>, Receiver<ROS2DiscoveryEvent>) =
             unbounded();
-        let mut discovery_mgr = DiscoveryMgr::create(self.participant);
+        let mut discovery_mgr = DiscoveryMgr::create(self.participant, ros_discovery_mgr.clone());
         discovery_mgr.run(tx).await;
 
-        // create RoutesManager
-        let mut routes_mgr = RoutesMgr::create(
+        // Create RoutesManager
+        let mut routes_mgr = RoutesMgr::new(
             self.plugin_id.clone(),
             self.config.clone(),
             self.zsession,
             self.participant,
             discovery_mgr.discovered_entities.clone(),
+            ros_discovery_mgr,
             admin_prefix.clone(),
         );
-        DiscoveryMgr::create(self.participant);
 
         loop {
             select!(

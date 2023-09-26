@@ -17,6 +17,7 @@ use crate::events::ROS2AnnouncementEvent;
 use crate::events::ROS2DiscoveryEvent;
 use crate::qos_helpers::adapt_reader_qos_for_writer;
 use crate::qos_helpers::adapt_writer_qos_for_reader;
+use crate::ros_discovery::RosDiscoveryInfoMgr;
 use crate::route_publisher::RoutePublisher;
 use crate::route_subscriber::RouteSubscriber;
 use cyclors::dds_entity_t;
@@ -66,18 +67,21 @@ pub struct RoutesMgr<'a> {
     // maps of established routes - ecah map indexed by topic/service/action name
     routes_publishers: HashMap<String, RoutePublisher<'a>>,
     routes_subscribers: HashMap<String, RouteSubscriber<'a>>,
+    // ros_discovery_info read/write manager
+    ros_discovery_mgr: Arc<RosDiscoveryInfoMgr>,
     admin_prefix: OwnedKeyExpr,
     // admin space: index is the admin_keyexpr (relative to admin_prefix)
     admin_space: HashMap<OwnedKeyExpr, RouteRef>,
 }
 
 impl<'a> RoutesMgr<'a> {
-    pub fn create(
+    pub fn new(
         plugin_id: OwnedKeyExpr,
         config: Arc<Config>,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
         discovered_entities: Arc<RwLock<DiscoveredEntities>>,
+        ros_discovery_mgr: Arc<RosDiscoveryInfoMgr>,
         admin_prefix: OwnedKeyExpr,
     ) -> RoutesMgr<'a> {
         RoutesMgr {
@@ -88,6 +92,7 @@ impl<'a> RoutesMgr<'a> {
             discovered_entities,
             routes_publishers: HashMap::new(),
             routes_subscribers: HashMap::new(),
+            ros_discovery_mgr,
             admin_prefix,
             admin_space: HashMap::new(),
         }
@@ -135,7 +140,12 @@ impl<'a> RoutesMgr<'a> {
                         log::info!("{route} unused - remove it");
                         self.admin_space
                             .remove(&(*KE_PREFIX_ROUTE_PUBLISHER / iface.name_as_keyexpr()));
-                        entry.remove();
+                        let route = entry.remove();
+                        // remove reader's GID in ros_discovery_msg
+                        self.ros_discovery_mgr
+                            .remove_dds_reader(route.dds_reader_guid().map_err(|e| {
+                                format!("Failed to update ros_discovery_info message: {e}")
+                            })?);
                     }
                 }
             }
@@ -178,7 +188,12 @@ impl<'a> RoutesMgr<'a> {
                         log::info!("{route} unused - remove it");
                         self.admin_space
                             .remove(&(*KE_PREFIX_ROUTE_SUBSCRIBER / iface.name_as_keyexpr()));
-                        entry.remove();
+                        let route = entry.remove();
+                        // remove writer's GID in ros_discovery_msg
+                        self.ros_discovery_mgr
+                            .remove_dds_writer(route.dds_writer_guid().map_err(|e| {
+                                format!("Failed to update ros_discovery_info message: {e}")
+                            })?);
                     }
                 }
             }
@@ -243,14 +258,18 @@ impl<'a> RoutesMgr<'a> {
                 if let Entry::Occupied(mut entry) =
                     self.routes_subscribers.entry(format!("/{zenoh_key_expr}"))
                 {
-                    println!("-- Retire {plugin_id} {zenoh_key_expr} => get {zenoh_key_expr} OK");
                     let route = entry.get_mut();
                     route.remove_remote_route(&plugin_id, &zenoh_key_expr);
                     if route.is_unused() {
                         log::info!("{route} unused - remove it");
                         self.admin_space
                             .remove(&(*KE_PREFIX_ROUTE_SUBSCRIBER / &zenoh_key_expr));
-                        entry.remove();
+                        let route = entry.remove();
+                        // remove writer's GID in ros_discovery_msg
+                        self.ros_discovery_mgr
+                            .remove_dds_writer(route.dds_writer_guid().map_err(|e| {
+                                format!("Failed to update ros_discovery_info message: {e}")
+                            })?);
                     }
                 }
             }
@@ -288,7 +307,12 @@ impl<'a> RoutesMgr<'a> {
                         log::info!("{route} unused - remove it");
                         self.admin_space
                             .remove(&(*KE_PREFIX_ROUTE_PUBLISHER / &zenoh_key_expr));
-                        entry.remove();
+                        let route = entry.remove();
+                        // remove reader's GID in ros_discovery_msg
+                        self.ros_discovery_mgr
+                            .remove_dds_reader(route.dds_reader_guid().map_err(|e| {
+                                format!("Failed to update ros_discovery_info message: {e}")
+                            })?);
                     }
                 }
             }
@@ -328,6 +352,14 @@ impl<'a> RoutesMgr<'a> {
                 let admin_ke = *KE_PREFIX_ROUTE_PUBLISHER / zenoh_key_expr;
                 self.admin_space
                     .insert(admin_ke, RouteRef::PublisherRoute(ros2_name));
+
+                // insert reader's GID in ros_discovery_msg
+                self.ros_discovery_mgr.add_dds_reader(
+                    route
+                        .dds_reader_guid()
+                        .map_err(|e| format!("Failed to update ros_discovery_info message: {e}"))?,
+                );
+
                 Ok(entry.insert(route))
             }
             Entry::Occupied(entry) => Ok(entry.into_mut()),
@@ -362,6 +394,14 @@ impl<'a> RoutesMgr<'a> {
                 let admin_ke = *KE_PREFIX_ROUTE_SUBSCRIBER / zenoh_key_expr;
                 self.admin_space
                     .insert(admin_ke, RouteRef::SubscriberRoute(ros2_name));
+
+                // insert writer's GID in ros_discovery_msg
+                self.ros_discovery_mgr.add_dds_writer(
+                    route
+                        .dds_writer_guid()
+                        .map_err(|e| format!("Failed to update ros_discovery_info message: {e}"))?,
+                );
+
                 Ok(entry.insert(route))
             }
             Entry::Occupied(entry) => Ok(entry.into_mut()),
