@@ -12,9 +12,6 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use cyclors::{qos::*, DDS_LENGTH_UNLIMITED};
-use zenoh::prelude::{keyexpr, OwnedKeyExpr};
-
-use crate::ke_for_sure;
 
 pub fn get_history_or_default(qos: &Qos) -> History {
     match &qos.history {

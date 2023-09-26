@@ -16,7 +16,7 @@ use cyclors::{
     dds_entity_t, dds_get_entity_sertype, dds_strretcode, dds_writecdr, ddsi_serdata_from_ser_iov,
     ddsi_serdata_kind_SDK_DATA, ddsi_sertype, ddsrt_iov_len_t, ddsrt_iovec_t,
 };
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -78,10 +78,10 @@ pub struct RouteSubscriber<'a> {
     // a liveliness token associated to this route, for announcement to other plugins
     #[serde(skip)]
     liveliness_token: Option<LivelinessToken<'a>>,
-    // the list of remote routes served by this route (admin key expr)
-    remote_routes: HashSet<OwnedKeyExpr>,
+    // the list of remote routes served by this route ("<plugin_id>:<zenoh_key_expr>"")
+    remote_routes: HashSet<String>,
     // the list of nodes served by this route
-    pub(crate) local_nodes: HashSet<String>,
+    local_nodes: HashSet<String>,
 }
 
 impl Drop for RouteSubscriber<'_> {
@@ -285,20 +285,24 @@ impl RouteSubscriber<'_> {
     }
 
     #[inline]
-    pub fn add_remote_route(&mut self, ke: OwnedKeyExpr) {
-        self.remote_routes.insert(ke);
-        if self.remote_routes.len() == 1 {}
+    pub fn add_remote_route(&mut self, plugin_id: &str, zenoh_key_expr: &keyexpr) {
+        self.remote_routes
+            .insert(format!("{plugin_id}:{zenoh_key_expr}"));
+        log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
     }
 
     #[inline]
-    pub fn remove_remote_route(&mut self, ke: &keyexpr) {
-        self.remote_routes.remove(ke);
+    pub fn remove_remote_route(&mut self, plugin_id: &str, zenoh_key_expr: &keyexpr) {
+        self.remote_routes
+            .remove(&format!("{plugin_id}:{zenoh_key_expr}"));
+        log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
     }
 
     /// Remove all Writers reference with admin keyexpr containing "sub_ke"
     #[inline]
     pub fn remove_remote_routes(&mut self, sub_ke: &str) {
         self.remote_routes.retain(|s| !s.contains(sub_ke));
+        log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
     }
 
     #[inline]
@@ -315,6 +319,7 @@ impl RouteSubscriber<'_> {
         reader_qos: &Qos,
     ) {
         self.local_nodes.insert(entity_key);
+        log::debug!("{self} now serving local nodes {:?}", self.local_nodes);
         // if 1st local node added, activate the route
         if self.local_nodes.len() == 1 {
             if let Err(e) = self.activate(config, plugin_id, reader_qos).await {
@@ -326,6 +331,7 @@ impl RouteSubscriber<'_> {
     #[inline]
     pub fn remove_local_node(&mut self, entity_key: &str) {
         self.local_nodes.remove(entity_key);
+        log::debug!("{self} now serving local nodes {:?}", self.local_nodes);
         // if last local node removed, deactivate the route
         if self.local_nodes.is_empty() {
             self.deactivate();

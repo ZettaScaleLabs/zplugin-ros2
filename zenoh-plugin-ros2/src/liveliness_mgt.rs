@@ -193,12 +193,10 @@ fn key_expr_to_qos(ke: &keyexpr) -> Result<(bool, Qos), String> {
 }
 
 mod tests {
-    use super::*;
-    use std::ops::Deref;
-    use std::str::FromStr;
-
     #[test]
     fn test_qos_key_expr() {
+        use super::*;
+
         let mut q = Qos::default();
         assert_eq!(qos_to_key_expr(true, &q).to_string(), ":::");
         assert_eq!(

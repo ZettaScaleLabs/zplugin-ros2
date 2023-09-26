@@ -92,61 +92,61 @@ impl std::fmt::Display for ROS2DiscoveryEvent {
 #[derive(Debug)]
 pub enum ROS2AnnouncementEvent {
     AnnouncedMsgPub {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
         keyless: bool,
         writer_qos: Qos,
     },
     RetiredMsgPub {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedMsgSub {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
         keyless: bool,
         reader_qos: Qos,
     },
     RetiredMsgSub {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedServiceSrv {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
     },
     RetiredServiceSrv {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedServiceCli {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
     },
     RetiredServiceCli {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedActionSrv {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
     },
     RetiredActionSrv {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
     },
     AnnouncedActionCli {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
         ros2_type: String,
     },
     RetiredActionCli {
-        liveliness_ke: OwnedKeyExpr,
+        plugin_id: OwnedKeyExpr,
         zenoh_key_expr: OwnedKeyExpr,
     },
 }

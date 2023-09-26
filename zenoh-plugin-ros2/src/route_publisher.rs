@@ -23,7 +23,7 @@ use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
 use zenoh_ext::{PublicationCache, SessionExt};
 
-use crate::liveliness_mgt::{self, new_ke_liveliness_pub, qos_to_key_expr};
+use crate::liveliness_mgt::new_ke_liveliness_pub;
 use crate::ros2_utils::ros2_message_type_to_dds_type;
 use crate::serialize_option_as_bool;
 use crate::{dds_discovery::*, qos_helpers::*, Config, KE_PREFIX_PUB_CACHE};
@@ -77,10 +77,10 @@ pub struct RoutePublisher<'a> {
     // a liveliness token associated to this route, for announcement to other plugins
     #[serde(skip)]
     liveliness_token: Option<LivelinessToken<'a>>,
-    // the list of remote routes served by this route (admin key expr)
-    remote_routes: HashSet<OwnedKeyExpr>,
+    // the list of remote routes served by this route ("<plugin_id>:<zenoh_key_expr>"")
+    remote_routes: HashSet<String>,
     // the list of nodes served by this route
-    pub(crate) local_nodes: HashSet<String>,
+    local_nodes: HashSet<String>,
 }
 
 impl Drop for RoutePublisher<'_> {
@@ -290,19 +290,24 @@ impl RoutePublisher<'_> {
     }
 
     #[inline]
-    pub fn add_remote_route(&mut self, admin_ke: OwnedKeyExpr) {
-        self.remote_routes.insert(admin_ke);
+    pub fn add_remote_route(&mut self, plugin_id: &str, zenoh_key_expr: &keyexpr) {
+        self.remote_routes
+            .insert(format!("{plugin_id}:{zenoh_key_expr}"));
+        log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
     }
 
     #[inline]
-    pub fn remove_remote_route(&mut self, admin_ke: &keyexpr) {
-        self.remote_routes.remove(admin_ke);
+    pub fn remove_remote_route(&mut self, plugin_id: &str, zenoh_key_expr: &keyexpr) {
+        self.remote_routes
+            .remove(&format!("{plugin_id}:{zenoh_key_expr}"));
+        log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
     }
 
     /// Remove all routes reference with admin keyexpr containing "sub_ke"
     #[inline]
     pub fn remove_remote_routes(&mut self, sub_ke: &str) {
         self.remote_routes.retain(|s| !s.contains(sub_ke));
+        log::debug!("{self} now serving remote routes {:?}", self.remote_routes);
     }
 
     #[inline]
@@ -313,6 +318,7 @@ impl RoutePublisher<'_> {
     #[inline]
     pub async fn add_local_node(&mut self, node: String, plugin_id: &keyexpr, writer_qos: &Qos) {
         self.local_nodes.insert(node);
+        log::debug!("{self} now serving local nodes {:?}", self.local_nodes);
         // if 1st local node added, activate the route
         if self.local_nodes.len() == 1 {
             if let Err(e) = self.activate(plugin_id, writer_qos).await {
@@ -324,6 +330,7 @@ impl RoutePublisher<'_> {
     #[inline]
     pub fn remove_local_node(&mut self, node: &str) {
         self.local_nodes.remove(node);
+        log::debug!("{self} now serving local nodes {:?}", self.local_nodes);
         // if last local node removed, deactivate the route
         if self.local_nodes.is_empty() {
             self.deactivate();

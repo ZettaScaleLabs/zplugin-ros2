@@ -15,13 +15,12 @@ use crate::config::Config;
 use crate::discovered_entities::DiscoveredEntities;
 use crate::events::ROS2AnnouncementEvent;
 use crate::events::ROS2DiscoveryEvent;
-use crate::node_info::MsgPub;
-use crate::node_info::MsgSub;
 use crate::qos_helpers::adapt_reader_qos_for_writer;
 use crate::qos_helpers::adapt_writer_qos_for_reader;
 use crate::route_publisher::RoutePublisher;
 use crate::route_subscriber::RouteSubscriber;
 use cyclors::dds_entity_t;
+use cyclors::qos::Qos;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -101,13 +100,37 @@ impl<'a> RoutesMgr<'a> {
         use ROS2DiscoveryEvent::*;
         match event {
             DiscoveredMsgPub(node, iface) => {
-                self.update_route_publisher(&node, &iface).await?;
+                let plugin_id = self.plugin_id.clone();
+                // Retrieve info on DDS Writer
+                let entity = {
+                    let entities = zread!(self.discovered_entities);
+                    entities
+                        .get_writer(&iface.writer)
+                        .ok_or(format!(
+                            "Failed to get DDS info for {iface} Writer {}. Already deleted ?",
+                            iface.writer
+                        ))?
+                        .clone()
+                };
+                // Get route (create it if not yet exists)
+                let route = self
+                    .get_or_create_route_publisher(
+                        iface.name,
+                        iface.typ,
+                        entity.keyless,
+                        adapt_writer_qos_for_reader(&entity.qos),
+                    )
+                    .await?;
+                route
+                    .add_local_node(node.into(), &plugin_id, &entity.qos)
+                    .await;
             }
+
             UndiscoveredMsgPub(node, iface) => {
                 if let Entry::Occupied(mut entry) = self.routes_publishers.entry(iface.name.clone())
                 {
                     let route = entry.get_mut();
-                    route.local_nodes.remove(&node);
+                    route.remove_local_node(&node);
                     if route.is_unused() {
                         log::info!("{route} unused - remove it");
                         self.admin_space
@@ -116,15 +139,41 @@ impl<'a> RoutesMgr<'a> {
                     }
                 }
             }
+
             DiscoveredMsgSub(node, iface) => {
-                self.update_route_subscriber(&node, &iface).await?;
+                // Retrieve info on DDS Reader
+                let entity = {
+                    let entities = zread!(self.discovered_entities);
+                    entities
+                        .get_reader(&iface.reader)
+                        .ok_or(format!(
+                            "Failed to get DDS info for {iface} Reader {}. Already deleted ?",
+                            iface.reader
+                        ))?
+                        .clone()
+                };
+                let plugin_id = self.plugin_id.clone();
+                let config = self.config.clone();
+                // Get route (create it if not yet exists)
+                let route = self
+                    .get_or_create_route_subscriber(
+                        iface.name,
+                        iface.typ,
+                        entity.keyless,
+                        adapt_reader_qos_for_writer(&entity.qos),
+                    )
+                    .await?;
+                route
+                    .add_local_node(node.into(), &config, &plugin_id, &entity.qos)
+                    .await;
             }
+
             UndiscoveredMsgSub(node, iface) => {
                 if let Entry::Occupied(mut entry) =
                     self.routes_subscribers.entry(iface.name.clone())
                 {
                     let route = entry.get_mut();
-                    route.local_nodes.remove(&node);
+                    route.remove_local_node(&node);
                     if route.is_unused() {
                         log::info!("{route} unused - remove it");
                         self.admin_space
@@ -168,116 +217,155 @@ impl<'a> RoutesMgr<'a> {
         use ROS2AnnouncementEvent::*;
         match event {
             AnnouncedMsgPub {
-                liveliness_ke,
+                plugin_id,
                 zenoh_key_expr,
                 ros2_type,
                 keyless,
                 writer_qos,
             } => {
-                // TODO: get or try to create route, then add remote.
+                // On remote Publisher route announcement, prepare a Subscriber route
+                // with an associated DDS Writer allowing local ROS2 Nodes to discover it
+                let route = self
+                    .get_or_create_route_subscriber(
+                        format!("/{zenoh_key_expr}"),
+                        ros2_type,
+                        keyless,
+                        writer_qos,
+                    )
+                    .await?;
+                route.add_remote_route(&plugin_id, &zenoh_key_expr);
             }
+
+            RetiredMsgPub {
+                plugin_id,
+                zenoh_key_expr,
+            } => {
+                if let Entry::Occupied(mut entry) =
+                    self.routes_subscribers.entry(format!("/{zenoh_key_expr}"))
+                {
+                    println!("-- Retire {plugin_id} {zenoh_key_expr} => get {zenoh_key_expr} OK");
+                    let route = entry.get_mut();
+                    route.remove_remote_route(&plugin_id, &zenoh_key_expr);
+                    if route.is_unused() {
+                        log::info!("{route} unused - remove it");
+                        self.admin_space
+                            .remove(&(*KE_PREFIX_ROUTE_SUBSCRIBER / &zenoh_key_expr));
+                        entry.remove();
+                    }
+                }
+            }
+
             AnnouncedMsgSub {
-                liveliness_ke,
+                plugin_id,
                 zenoh_key_expr,
                 ros2_type,
                 keyless,
                 reader_qos,
             } => {
-                // TODO: get or try to create route, then add remote.
+                // On remote Subscriber route announcement, prepare a Publisher route
+                // with an associated DDS Reader allowing local ROS2 Nodes to discover it
+                let route = self
+                    .get_or_create_route_publisher(
+                        format!("/{zenoh_key_expr}"),
+                        ros2_type,
+                        keyless,
+                        reader_qos,
+                    )
+                    .await?;
+                route.add_remote_route(&plugin_id, &zenoh_key_expr);
             }
+
+            RetiredMsgSub {
+                plugin_id,
+                zenoh_key_expr,
+            } => {
+                if let Entry::Occupied(mut entry) =
+                    self.routes_publishers.entry(format!("/{zenoh_key_expr}"))
+                {
+                    let route = entry.get_mut();
+                    route.remove_remote_route(&plugin_id, &zenoh_key_expr);
+                    if route.is_unused() {
+                        log::info!("{route} unused - remove it");
+                        self.admin_space
+                            .remove(&(*KE_PREFIX_ROUTE_PUBLISHER / &zenoh_key_expr));
+                        entry.remove();
+                    }
+                }
+            }
+
             _ => log::info!("... TODO: manage {event:?}"),
         }
         Ok(())
     }
 
-    async fn update_route_publisher(&mut self, node: &str, iface: &MsgPub) -> Result<(), String> {
-        // Retrieve info on DDS Writer
-        let entity = {
-            let entities = zread!(self.discovered_entities);
-            entities
-                .get_writer(&iface.writer)
-                .ok_or(format!(
-                    "Failed to get DDS info for {iface} Writer {}. Already deleted ?",
-                    iface.writer
-                ))?
-                .clone()
-        };
-
-        let route = match self.routes_publishers.entry(iface.name.clone()) {
+    async fn get_or_create_route_publisher(
+        &mut self,
+        ros2_name: String,
+        ros2_type: String,
+        keyless: bool,
+        reader_qos: Qos,
+    ) -> Result<&mut RoutePublisher<'a>, String> {
+        match self.routes_publishers.entry(ros2_name.clone()) {
             Entry::Vacant(entry) => {
+                // ROS2 topic name => Zenoh key expr : strip '/' prefix
+                let zenoh_key_expr = ke_for_sure!(&ros2_name[1..]);
                 // create route
-                let mut route = RoutePublisher::create(
+                let route = RoutePublisher::create(
                     &self.config,
                     &self.zsession,
                     self.participant,
-                    iface.name.clone(),
-                    iface.typ.clone(),
-                    iface.name_as_keyexpr().to_owned(),
+                    ros2_name.clone(),
+                    ros2_type,
+                    zenoh_key_expr.to_owned(),
                     &None,
-                    entity.keyless,
-                    adapt_writer_qos_for_reader(&entity.qos),
+                    keyless,
+                    reader_qos,
                 )
                 .await?;
                 log::info!("{route} created");
 
                 // insert reference in admin_space
-                let admin_ke = *KE_PREFIX_ROUTE_PUBLISHER / iface.name_as_keyexpr();
+                let admin_ke = *KE_PREFIX_ROUTE_PUBLISHER / zenoh_key_expr;
                 self.admin_space
-                    .insert(admin_ke, RouteRef::PublisherRoute(iface.name.clone()));
-                entry.insert(route)
+                    .insert(admin_ke, RouteRef::PublisherRoute(ros2_name));
+                Ok(entry.insert(route))
             }
-            Entry::Occupied(entry) => entry.into_mut(),
-        };
-
-        route
-            .add_local_node(node.into(), &self.plugin_id, &entity.qos)
-            .await;
-        log::debug!("{route} now serving nodes {:?}", route.local_nodes);
-        Ok(())
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
+        }
     }
 
-    async fn update_route_subscriber(&mut self, node: &str, iface: &MsgSub) -> Result<(), String> {
-        // Retrieve info on DDS Reader
-        let entity = {
-            let entities = zread!(self.discovered_entities);
-            entities
-                .get_reader(&iface.reader)
-                .ok_or(format!(
-                    "Failed to get DDS info for {iface} Reader {}. Already deleted ?",
-                    iface.reader
-                ))?
-                .clone()
-        };
-
-        let route = match self.routes_subscribers.entry(iface.name.clone()) {
+    async fn get_or_create_route_subscriber(
+        &mut self,
+        ros2_name: String,
+        ros2_type: String,
+        keyless: bool,
+        writer_qos: Qos,
+    ) -> Result<&mut RouteSubscriber<'a>, String> {
+        match self.routes_subscribers.entry(ros2_name.clone()) {
             Entry::Vacant(entry) => {
+                // ROS2 topic name => Zenoh key expr : strip '/' prefix
+                let zenoh_key_expr = ke_for_sure!(&ros2_name[1..]);
                 // create route
                 let route = RouteSubscriber::create(
                     &self.zsession,
                     self.participant,
-                    iface.name.clone(),
-                    iface.typ.clone(),
-                    iface.name_as_keyexpr().to_owned(),
-                    entity.keyless,
-                    adapt_reader_qos_for_writer(&entity.qos),
+                    ros2_name.clone(),
+                    ros2_type,
+                    zenoh_key_expr.to_owned(),
+                    keyless,
+                    writer_qos,
                 )
                 .await?;
                 log::info!("{route} created");
 
                 // insert reference in admin_space
-                let admin_ke = *KE_PREFIX_ROUTE_SUBSCRIBER / iface.name_as_keyexpr();
+                let admin_ke = *KE_PREFIX_ROUTE_SUBSCRIBER / zenoh_key_expr;
                 self.admin_space
-                    .insert(admin_ke, RouteRef::SubscriberRoute(iface.name.clone()));
-                entry.insert(route)
+                    .insert(admin_ke, RouteRef::SubscriberRoute(ros2_name));
+                Ok(entry.insert(route))
             }
-            Entry::Occupied(entry) => entry.into_mut(),
-        };
-
-        route
-            .add_local_node(node.into(), &self.config, &self.plugin_id, &entity.qos)
-            .await;
-        log::debug!("{route} now serving nodes {:?}", route.local_nodes);
-        Ok(())
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
+        }
     }
 
     pub async fn treat_admin_query(&self, query: &Query) {
