@@ -157,7 +157,6 @@ impl RosDiscoveryInfoMgr {
             participant_entities_info
                 .node_entities_info_seq
                 .insert(node_fullname.clone(), node_info);
-            log::error!("Initial 'ros_discovery_info': {participant_entities_info}");
 
             Ok(RosDiscoveryInfoMgr {
                 reader,
@@ -273,7 +272,7 @@ impl RosDiscoveryInfoMgr {
             map.values()
                 .into_iter()
                 .filter_map(|sample| {
-                    log::trace!("Desrialize ParticipantEntitiesInfo: {:?}", sample);
+                    log::trace!("Deserialize ParticipantEntitiesInfo: {:?}", sample);
                     match cdr::deserialize_from::<_, ParticipantEntitiesInfo, _>(
                         ZBuf::from(sample).reader(),
                         cdr::size::Infinite,

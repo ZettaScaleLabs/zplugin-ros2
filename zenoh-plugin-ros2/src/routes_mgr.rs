@@ -137,7 +137,6 @@ impl<'a> RoutesMgr<'a> {
                     let route = entry.get_mut();
                     route.remove_local_node(&node);
                     if route.is_unused() {
-                        log::info!("{route} unused - remove it");
                         self.admin_space
                             .remove(&(*KE_PREFIX_ROUTE_PUBLISHER / iface.name_as_keyexpr()));
                         let route = entry.remove();
@@ -146,6 +145,7 @@ impl<'a> RoutesMgr<'a> {
                             .remove_dds_reader(route.dds_reader_guid().map_err(|e| {
                                 format!("Failed to update ros_discovery_info message: {e}")
                             })?);
+                        log::info!("{route} removed");
                     }
                 }
             }
@@ -185,7 +185,6 @@ impl<'a> RoutesMgr<'a> {
                     let route = entry.get_mut();
                     route.remove_local_node(&node);
                     if route.is_unused() {
-                        log::info!("{route} unused - remove it");
                         self.admin_space
                             .remove(&(*KE_PREFIX_ROUTE_SUBSCRIBER / iface.name_as_keyexpr()));
                         let route = entry.remove();
@@ -194,6 +193,7 @@ impl<'a> RoutesMgr<'a> {
                             .remove_dds_writer(route.dds_writer_guid().map_err(|e| {
                                 format!("Failed to update ros_discovery_info message: {e}")
                             })?);
+                        log::info!("{route} removed");
                     }
                 }
             }
@@ -261,7 +261,6 @@ impl<'a> RoutesMgr<'a> {
                     let route = entry.get_mut();
                     route.remove_remote_route(&plugin_id, &zenoh_key_expr);
                     if route.is_unused() {
-                        log::info!("{route} unused - remove it");
                         self.admin_space
                             .remove(&(*KE_PREFIX_ROUTE_SUBSCRIBER / &zenoh_key_expr));
                         let route = entry.remove();
@@ -270,6 +269,7 @@ impl<'a> RoutesMgr<'a> {
                             .remove_dds_writer(route.dds_writer_guid().map_err(|e| {
                                 format!("Failed to update ros_discovery_info message: {e}")
                             })?);
+                        log::info!("{route} removed");
                     }
                 }
             }
@@ -304,7 +304,6 @@ impl<'a> RoutesMgr<'a> {
                     let route = entry.get_mut();
                     route.remove_remote_route(&plugin_id, &zenoh_key_expr);
                     if route.is_unused() {
-                        log::info!("{route} unused - remove it");
                         self.admin_space
                             .remove(&(*KE_PREFIX_ROUTE_PUBLISHER / &zenoh_key_expr));
                         let route = entry.remove();
@@ -313,6 +312,7 @@ impl<'a> RoutesMgr<'a> {
                             .remove_dds_reader(route.dds_reader_guid().map_err(|e| {
                                 format!("Failed to update ros_discovery_info message: {e}")
                             })?);
+                        log::info!("{route} removed");
                     }
                 }
             }
@@ -320,6 +320,14 @@ impl<'a> RoutesMgr<'a> {
             _ => log::info!("... TODO: manage {event:?}"),
         }
         Ok(())
+    }
+
+    pub async fn query_historical_all_publications(&mut self, plugin_id: &keyexpr) {
+        for route in self.routes_subscribers.values_mut() {
+            route
+                .query_historical_publications(&plugin_id, self.config.queries_timeout)
+                .await;
+        }
     }
 
     async fn get_or_create_route_publisher(
@@ -335,7 +343,7 @@ impl<'a> RoutesMgr<'a> {
                 let zenoh_key_expr = ke_for_sure!(&ros2_name[1..]);
                 // create route
                 let route = RoutePublisher::create(
-                    &self.config,
+                    self.config.clone(),
                     &self.zsession,
                     self.participant,
                     ros2_name.clone(),
@@ -379,6 +387,7 @@ impl<'a> RoutesMgr<'a> {
                 let zenoh_key_expr = ke_for_sure!(&ros2_name[1..]);
                 // create route
                 let route = RouteSubscriber::create(
+                    self.config.clone(),
                     &self.zsession,
                     self.participant,
                     ros2_name.clone(),

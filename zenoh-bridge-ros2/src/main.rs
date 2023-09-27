@@ -87,7 +87,7 @@ r#"--rest-http-port=[PORT | IP:PORT] \
         // DDS related arguments:
         //
         .arg(Arg::from_usage(
-r#"-s, --scope=[String]   'A string added as prefix to all routed DDS topics when mapped to a zenoh resource. This should be used to avoid conflicts when several distinct DDS systems using the same topics names are routed via zenoh'"#
+r#"-n, --namespace=[String]   'A ROS 2 namespace to be used by the "zenoh_bridge_dds" node'"#
         ))
         .arg(Arg::from_usage(
 r#"-d, --domain=[ID]   'The DDS Domain ID. The default value is "$ROS_DOMAIN_ID" if defined, or "0" otherwise.'"#)
@@ -194,7 +194,7 @@ r#"--watchdog=[PERIOD]   'Experimental!! Run a watchdog thread that monitors the
 
     // apply DDS related arguments over config
     insert_json5!(config, args, "plugins/ros2/id", if "id",);
-    insert_json5!(config, args, "plugins/ros2/scope", if "scope",);
+    insert_json5!(config, args, "plugins/ros2/namespace", if "namespace",);
     insert_json5!(config, args, "plugins/ros2/domain", if "domain", .parse::<u64>().unwrap());
     insert_json5!(config, args, "plugins/ros2/ros_localhost_only", if "ros-localhost-only");
     #[cfg(feature = "dds_shm")]

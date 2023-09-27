@@ -215,6 +215,14 @@ impl DDSRawSample {
 
         encoded
     }
+
+    pub fn len(&self) -> usize {
+        #[cfg(feature = "dds_shm")]
+        {
+            return self.data.iov_len + (*self.header).data_size;
+        }
+        self.data.iov_len
+    }
 }
 
 impl Drop for DDSRawSample {
@@ -504,13 +512,18 @@ unsafe extern "C" fn data_forwarder_listener(dr: dds_entity_t, arg: *mut std::os
 
             if *crate::LOG_PAYLOAD {
                 log::trace!(
-                    "Route data from DDS {} to zenoh key={} - payload: {:02x?}",
+                    "Route Publisher (DDS:{} -> Zenoh:{}) - routing payload: {:02x?}",
                     &(*pa).0,
                     &(*pa).1,
                     raw_sample
                 );
             } else {
-                log::trace!("Route data from DDS {} to zenoh key={}", &(*pa).0, &(*pa).1);
+                log::trace!(
+                    "Route Publisher (DDS:{} -> Zenoh:{}) - routing {} bytes",
+                    &(*pa).0,
+                    &(*pa).1,
+                    raw_sample.len()
+                );
             }
             let _ = (*pa)
                 .2

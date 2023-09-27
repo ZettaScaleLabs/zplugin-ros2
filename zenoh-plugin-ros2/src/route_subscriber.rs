@@ -31,11 +31,10 @@ use crate::gid::Gid;
 use crate::liveliness_mgt::new_ke_liveliness_sub;
 use crate::qos_helpers::is_transient_local;
 use crate::ros2_utils::ros2_message_type_to_dds_type;
-use crate::serialize_option_as_bool;
 use crate::{
-    dds_discovery::*, qos::Qos, vec_into_raw_parts, Config, KE_ANY_1_SEGMENT, KE_PREFIX_PUB_CACHE,
-    LOG_PAYLOAD,
+    dds_discovery::*, qos::Qos, vec_into_raw_parts, Config, KE_ANY_1_SEGMENT, LOG_PAYLOAD,
 };
+use crate::{serialize_option_as_bool, KE_PREFIX_PUB_CACHE};
 
 enum ZSubscriber<'a> {
     Subscriber(Subscriber<'a, ()>),
@@ -64,6 +63,9 @@ pub struct RouteSubscriber<'a> {
     // the zenoh session
     #[serde(skip)]
     zsession: &'a Arc<Session>,
+    // the config
+    #[serde(skip)]
+    config: Arc<Config>,
     // the zenoh subscriber receiving data to be re-published by the DDS Writer
     // `None` when route is created on a remote announcement and no local ROS2 Subscriber discovered yet
     #[serde(rename = "is_active", serialize_with = "serialize_option_as_bool")]
@@ -97,7 +99,7 @@ impl fmt::Display for RouteSubscriber<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Route Subscriber ({} -> {})",
+            "Route Subscriber (Zenoh:{} -> ROS:{})",
             self.zenoh_key_expr, self.ros2_name
         )
     }
@@ -106,6 +108,7 @@ impl fmt::Display for RouteSubscriber<'_> {
 impl RouteSubscriber<'_> {
     #[allow(clippy::too_many_arguments)]
     pub async fn create<'a, 'b>(
+        config: Arc<Config>,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
         ros2_name: String,
@@ -128,6 +131,7 @@ impl RouteSubscriber<'_> {
             ros2_type,
             zenoh_key_expr,
             zsession,
+            config,
             zenoh_subscriber: None,
             dds_writer,
             transient_local,
@@ -142,7 +146,7 @@ impl RouteSubscriber<'_> {
         &mut self,
         config: &Config,
         plugin_id: &keyexpr,
-        reader_qos: &Qos,
+        discovered_reader_qos: &Qos,
     ) -> Result<(), String> {
         log::debug!("{self} activate");
         // Callback routing data received by Zenoh subscriber to DDS Writer (if set)
@@ -158,12 +162,33 @@ impl RouteSubscriber<'_> {
             // query all PublicationCaches on "<KE_PREFIX_PUB_CACHE>/*/<routing_keyexpr>"
             let query_selector: Selector =
                 (*KE_PREFIX_PUB_CACHE / *KE_ANY_1_SEGMENT / &self.zenoh_key_expr).into();
-            log::debug!(
-                    "Route Subscriber ({} -> {}): query historical data from everybody for TRANSIENT_LOCAL Reader on {}",
-                    self.zenoh_key_expr,
-                    self.ros2_name,
-                    query_selector
-                );
+            log::error!("{self}: query historical data from everybody for TRANSIENT_LOCAL Reader on {query_selector}");
+            {
+                use zenoh_core::SyncResolve;
+                //
+                println!("********* QUERY FROM {query_selector}");
+                let rep = self
+                    .zsession
+                    .get(&query_selector)
+                    .target(QueryTarget::All)
+                    .consolidation(ConsolidationMode::None)
+                    .accept_replies(ReplyKeyExpr::Any)
+                    .res_sync()
+                    .unwrap();
+                while let Ok(reply) = rep.recv() {
+                    match reply.sample {
+                        Ok(sample) => println!(
+                            ">>>>>> Received ('{}': '{:02x?}')",
+                            sample.key_expr.as_str(),
+                            sample.value.payload.contiguous(),
+                        ),
+                        Err(err) => {
+                            println!(">> Received (ERROR: '{}')", String::try_from(&err).unwrap())
+                        }
+                    }
+                }
+                //
+            }
 
             let sub = self
                 .zsession
@@ -177,12 +202,7 @@ impl RouteSubscriber<'_> {
                 .query_accept_replies(ReplyKeyExpr::Any)
                 .res()
                 .await
-                .map_err(|e| {
-                    format!(
-                        "Route Subscriber ({} -> {}): failed to create FetchingSubscriber: {e}",
-                        self.zenoh_key_expr, self.ros2_name,
-                    )
-                })?;
+                .map_err(|e| format!("{self}: failed to create FetchingSubscriber: {e}",))?;
             Some(ZSubscriber::FetchingSubscriber(sub))
         } else {
             let sub = self
@@ -193,12 +213,7 @@ impl RouteSubscriber<'_> {
                 .reliable()
                 .res()
                 .await
-                .map_err(|e| {
-                    format!(
-                        "Route Subscriber ({} -> {}): failed to create Subscriber: {e}",
-                        self.zenoh_key_expr, self.ros2_name,
-                    )
-                })?;
+                .map_err(|e| format!("{self}: failed to create Subscriber: {e}"))?;
             Some(ZSubscriber::Subscriber(sub))
         };
 
@@ -208,7 +223,7 @@ impl RouteSubscriber<'_> {
             &self.zenoh_key_expr,
             &self.ros2_type,
             self.keyless,
-            &reader_qos,
+            &discovered_reader_qos,
         )?;
         let ros2_name = self.ros2_name.clone();
         self.liveliness_token = Some(
@@ -236,29 +251,54 @@ impl RouteSubscriber<'_> {
 
     /// If this route uses a FetchingSubscriber, query for historical publications
     /// using the specified Selector. Otherwise, do nothing.
-    pub async fn query_historical_publications<'a, F>(
+    pub async fn query_historical_publications<'a>(
         &mut self,
-        selector: F,
+        plugin_id: &keyexpr,
         query_timeout: Duration,
-    ) where
-        F: Fn() -> Selector<'a>,
-    {
+    ) {
         if let Some(ZSubscriber::FetchingSubscriber(sub)) = &mut self.zenoh_subscriber {
-            let s = selector();
-            log::debug!(
-                "Route Subscriber ({} -> {}): query historical publications from {}",
-                sub.key_expr(),
-                self.ros2_name,
-                s
+            // query all PublicationCaches on "<KE_PREFIX_PUB_CACHE>/<plugin_id>/<routing_keyexpr>"
+            let query_selector: Selector =
+                (*KE_PREFIX_PUB_CACHE / plugin_id / &self.zenoh_key_expr).into();
+            log::error!("Route Subscriber (Zenoh:{} -> ROS:{}): query historical data from {plugin_id} for TRANSIENT_LOCAL Reader on {query_selector}",
+                self.zenoh_key_expr, self.ros2_name
             );
+
             if let Err(e) = sub
                 .fetch({
                     let session = &self.zsession;
-                    let s = s.clone();
+                    let query_selector = query_selector.clone();
+                    {
+                        use zenoh_core::SyncResolve;
+                        //
+                        println!("********* FETCH FROM {query_selector}");
+                        let rep = session
+                            .get(&query_selector)
+                            .target(QueryTarget::All)
+                            .consolidation(ConsolidationMode::None)
+                            .accept_replies(ReplyKeyExpr::Any)
+                            .res_sync()
+                            .unwrap();
+                        while let Ok(reply) = rep.recv() {
+                            match reply.sample {
+                                Ok(sample) => println!(
+                                    ">>>>>> Received ('{}': '{:02x?}')",
+                                    sample.key_expr.as_str(),
+                                    sample.value.payload.contiguous(),
+                                ),
+                                Err(err) => println!(
+                                    ">> Received (ERROR: '{}')",
+                                    String::try_from(&err).unwrap()
+                                ),
+                            }
+                        }
+                        //
+                    }
+
                     move |cb| {
                         use zenoh_core::SyncResolve;
                         session
-                            .get(&s)
+                            .get(&query_selector)
                             .target(QueryTarget::All)
                             .consolidation(ConsolidationMode::None)
                             .accept_replies(ReplyKeyExpr::Any)
@@ -273,7 +313,7 @@ impl RouteSubscriber<'_> {
                 log::warn!(
                     "{}: query for historical publications on {} failed: {}",
                     self,
-                    s,
+                    query_selector,
                     e
                 );
             }
@@ -310,13 +350,16 @@ impl RouteSubscriber<'_> {
         entity_key: String,
         config: &Config,
         plugin_id: &keyexpr,
-        reader_qos: &Qos,
+        discovered_reader_qos: &Qos,
     ) {
         self.local_nodes.insert(entity_key);
         log::debug!("{self} now serving local nodes {:?}", self.local_nodes);
         // if 1st local node added, activate the route
         if self.local_nodes.len() == 1 {
-            if let Err(e) = self.activate(config, plugin_id, reader_qos).await {
+            if let Err(e) = self
+                .activate(config, plugin_id, discovered_reader_qos)
+                .await
+            {
                 log::error!("{self} activation failed: {e}");
             }
         }
@@ -346,14 +389,14 @@ impl RouteSubscriber<'_> {
 fn do_route_data(s: Sample, ros2_name: &str, data_writer: dds_entity_t) {
     if *LOG_PAYLOAD {
         log::trace!(
-            "Route Subscriber ({} -> {}): routing data - payload: {:?}",
+            "Route Subscriber (Zenoh:{} -> ROS:{}): routing data - payload: {:?}",
             s.key_expr,
             &ros2_name,
             s.value.payload
         );
     } else {
         log::trace!(
-            "Route Subscriber ({} -> {}): routing data",
+            "Route Subscriber (Zenoh:{} -> ROS:{}): routing data",
             s.key_expr,
             &ros2_name
         );
@@ -372,7 +415,7 @@ fn do_route_data(s: Sample, ros2_name: &str, data_writer: dds_entity_t) {
             Ok(s) => s,
             Err(_) => {
                 log::warn!(
-                    "Route Subscriber ({} -> {}): can't route data; excessive payload size ({})",
+                    "Route Subscriber (Zenoh:{} -> ROS:{}): can't route data; excessive payload size ({})",
                     s.key_expr,
                     ros2_name,
                     len
@@ -390,7 +433,7 @@ fn do_route_data(s: Sample, ros2_name: &str, data_writer: dds_entity_t) {
         let ret = dds_get_entity_sertype(data_writer, &mut sertype_ptr);
         if ret < 0 {
             log::warn!(
-                "Route Subscriber ({} -> {}): can't route data; sertype lookup failed ({})",
+                "Route Subscriber (Zenoh:{} -> ROS:{}): can't route data; sertype lookup failed ({})",
                 s.key_expr,
                 ros2_name,
                 CStr::from_ptr(dds_strretcode(ret))
@@ -411,7 +454,7 @@ fn do_route_data(s: Sample, ros2_name: &str, data_writer: dds_entity_t) {
         let ret = dds_writecdr(data_writer, fwdp);
         if ret < 0 {
             log::warn!(
-                "Route Subscriber ({} -> {}): DDS write({data_writer}) failed: {}",
+                "Route Subscriber (Zenoh:{} -> ROS:{}): DDS write({data_writer}) failed: {}",
                 s.key_expr,
                 ros2_name,
                 CStr::from_ptr(dds_strretcode(ret))

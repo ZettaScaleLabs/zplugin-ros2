@@ -14,7 +14,7 @@
 
 use cyclors::qos::{HistoryKind, Qos};
 use cyclors::{dds_entity_t, DDS_LENGTH_UNLIMITED};
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashSet, fmt};
@@ -26,8 +26,8 @@ use zenoh_ext::{PublicationCache, SessionExt};
 use crate::gid::Gid;
 use crate::liveliness_mgt::new_ke_liveliness_pub;
 use crate::ros2_utils::ros2_message_type_to_dds_type;
-use crate::serialize_option_as_bool;
-use crate::{dds_discovery::*, qos_helpers::*, Config, KE_PREFIX_PUB_CACHE};
+use crate::{dds_discovery::*, qos_helpers::*, Config};
+use crate::{serialize_option_as_bool, KE_PREFIX_PUB_CACHE, MAX_NB_TRANSIENT_LOCAL_WRITER};
 
 enum ZPublisher<'a> {
     Publisher(KeyExpr<'a>),
@@ -47,6 +47,9 @@ pub struct RoutePublisher<'a> {
     // the zenoh session
     #[serde(skip)]
     zsession: &'a Arc<Session>,
+    // the config
+    #[serde(skip)]
+    config: Arc<Config>,
     // the zenoh publisher used to re-publish to zenoh the data received by the DDS Reader
     // `None` when route is created on a remote announcement and no local ROS2 Subscriber discovered yet
     #[serde(rename = "is_active", serialize_with = "serialize_option_as_bool")]
@@ -80,7 +83,7 @@ impl fmt::Display for RoutePublisher<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Route Publisher ({} -> {})",
+            "Route Publisher (ROS:{} -> Zenoh:{})",
             self.ros2_name, self.zenoh_key_expr
         )
     }
@@ -89,7 +92,7 @@ impl fmt::Display for RoutePublisher<'_> {
 impl RoutePublisher<'_> {
     #[allow(clippy::too_many_arguments)]
     pub async fn create<'a>(
-        config: &Config,
+        config: Arc<Config>,
         zsession: &'a Arc<Session>,
         participant: dds_entity_t,
         ros2_name: String,
@@ -146,6 +149,7 @@ impl RoutePublisher<'_> {
             dds_reader,
             zenoh_key_expr,
             zsession,
+            config,
             zenoh_publisher: None,
             transient_local,
             keyless,
@@ -158,7 +162,7 @@ impl RoutePublisher<'_> {
     async fn activate<'a>(
         &'a mut self,
         plugin_id: &keyexpr,
-        writer_qos: &Qos,
+        discovered_writer_qos: &Qos,
     ) -> Result<(), String> {
         // For lifetime issue, redeclare the zenoh key expression that can't be stored in Self
         let declared_ke = self
@@ -168,7 +172,7 @@ impl RoutePublisher<'_> {
             .await
             .map_err(|e| {
                 format!(
-                    "Route Publisher ({} -> {}): failed to declare KeyExpr: {e}",
+                    "Route Publisher (ROS:{} -> Zenoh:{}): failed to declare KeyExpr: {e}",
                     self.ros2_name, self.zenoh_key_expr
                 )
             })?;
@@ -177,9 +181,9 @@ impl RoutePublisher<'_> {
         // if Reader is TRANSIENT_LOCAL, use a PublicationCache to store historical data
         self.zenoh_publisher = if self.transient_local {
             #[allow(non_upper_case_globals)]
-            let history_qos = get_history_or_default(writer_qos);
-            let durability_service_qos = get_durability_service_or_default(writer_qos);
-            let history = match (history_qos.kind, history_qos.depth) {
+            let history_qos = get_history_or_default(discovered_writer_qos);
+            let durability_service_qos = get_durability_service_or_default(discovered_writer_qos);
+            let mut history = match (history_qos.kind, history_qos.depth) {
                 (HistoryKind::KEEP_LAST, n) => {
                     if self.keyless {
                         // only 1 instance => history=n
@@ -191,20 +195,18 @@ impl RoutePublisher<'_> {
                         // Compute cache size as history.depth * durability_service.max_instances
                         // This makes the assumption that the frequency of publication is the same for all instances...
                         // But as we have no way to have 1 cache per-instance, there is no other choice.
-                        if let Some(m) = n.checked_mul(durability_service_qos.max_instances) {
-                            m as usize
-                        } else {
-                            usize::MAX
-                        }
+                        n.saturating_mul(durability_service_qos.max_instances) as usize
                     } else {
                         n as usize
                     }
                 }
                 (HistoryKind::KEEP_ALL, _) => usize::MAX,
             };
+            // In case there are several Writers served by this route, increase the cache size
+            history = history.saturating_mul(self.config.transient_local_cache_multiplier);
             log::debug!(
-                "Caching publications for TRANSIENT_LOCAL Writer on resource {} with history {} (Writer uses {:?} and DurabilityService.max_instances={})",
-                self.zenoh_key_expr, history, writer_qos.history, durability_service_qos.max_instances
+                "{self}: caching TRANSIENT_LOCAL publications via a PublicationCache with history={history} (computed from Reader's QoS: history=({:?},{}), durability_service.max_instances={})",
+                history_qos.kind, history_qos.depth, durability_service_qos.max_instances
             );
             let pub_cache = self
                 .zsession
@@ -244,7 +246,7 @@ impl RoutePublisher<'_> {
             &self.zenoh_key_expr,
             &self.ros2_type,
             self.keyless,
-            &writer_qos,
+            &discovered_writer_qos,
         )?;
         let ros2_name = self.ros2_name.clone();
         self.liveliness_token = Some(self.zsession
@@ -294,12 +296,17 @@ impl RoutePublisher<'_> {
     }
 
     #[inline]
-    pub async fn add_local_node(&mut self, node: String, plugin_id: &keyexpr, writer_qos: &Qos) {
+    pub async fn add_local_node(
+        &mut self,
+        node: String,
+        plugin_id: &keyexpr,
+        discovered_writer_qos: &Qos,
+    ) {
         self.local_nodes.insert(node);
         log::debug!("{self} now serving local nodes {:?}", self.local_nodes);
         // if 1st local node added, activate the route
         if self.local_nodes.len() == 1 {
-            if let Err(e) = self.activate(plugin_id, writer_qos).await {
+            if let Err(e) = self.activate(plugin_id, discovered_writer_qos).await {
                 log::error!("{self} activation failed: {e}");
             }
         }

@@ -97,8 +97,13 @@ const CYCLONEDDS_CONFIG_LOCALHOST_ONLY: &str = r#"<CycloneDDS><Domain><General><
 #[cfg(feature = "dds_shm")]
 const CYCLONEDDS_CONFIG_ENABLE_SHM: &str = r#"<CycloneDDS><Domain><SharedMemory><Enable>true</Enable></SharedMemory></Domain></CycloneDDS>,"#;
 
+// interval between each read/write on "ros_discovery_info" topic
 const ROS_DISCOVERY_INFO_POLL_INTERVAL_MS: u64 = 100;
 const ROS_DISCOVERY_INFO_PUSH_INTERVAL_MS: u64 = 100;
+
+// estimate of the maximum number of TRANSIEN_LOCAL Writer per topic to serve
+// used as multiplier for the PublicationCache size
+const MAX_NB_TRANSIENT_LOCAL_WRITER: usize = 1;
 
 zenoh_plugin_trait::declare_plugin!(ROS2Plugin);
 
@@ -404,7 +409,11 @@ impl<'a> ROS2PluginRuntime<'a> {
                                 }
                                 match (parsed.remaining(), evt.kind)  {
                                     // New remote bridge detected
-                                    (None, SampleKind::Put) => log::info!("New ROS 2 bridge detected: {}", plugin_id),
+                                    (None, SampleKind::Put) => {
+                                        log::info!("New ROS 2 bridge detected: {}", plugin_id);
+                                        // make all routes for a TRANSIENT_LOCAL Subscriber to query historical publications from this new plugin
+                                        routes_mgr.query_historical_all_publications(plugin_id).await;
+                                    }
                                     // New remote bridge left
                                     (None, SampleKind::Delete) => log::info!("Remote ROS 2 bridge left: {}", plugin_id),
                                     // the liveliness token corresponds to a ROS2 announcement

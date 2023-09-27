@@ -72,7 +72,9 @@ pub fn adapt_writer_qos_for_reader(qos: &Qos) -> Qos {
     // Unset proprietary QoS which shouldn't apply
     reader_qos.properties = None;
     reader_qos.entity_name = None;
-    reader_qos.ignore_local = None;
+    reader_qos.ignore_local = Some(IgnoreLocal {
+        kind: IgnoreLocalKind::PARTICIPANT,
+    });
 
     // Set default Reliability QoS if not set for writer
     if reader_qos.reliability.is_none() {

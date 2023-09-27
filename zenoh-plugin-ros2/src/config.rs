@@ -23,6 +23,7 @@ pub const DEFAULT_NAMESPACE: &str = "/";
 pub const DEFAULT_NODENAME: &str = "zenoh_bridge_ros2";
 pub const DEFAULT_DOMAIN: u32 = 0;
 pub const DEFAULT_RELIABLE_ROUTES_BLOCKING: bool = true;
+pub const DEFAULT_TRANSIENT_LOCAL_CACHE_MULTIPLIER: usize = 10;
 pub const DEFAULT_QUERIES_TIMEOUT: f32 = 5.0;
 pub const DEFAULT_DDS_LOCALHOST_ONLY: bool = false;
 
@@ -44,6 +45,8 @@ pub struct Config {
     #[serde(default)]
     #[cfg(feature = "dds_shm")]
     pub shm_enabled: bool,
+    #[serde(default = "default_transient_local_cache_multiplier")]
+    pub transient_local_cache_multiplier: usize,
     #[serde(
         default = "default_queries_timeout",
         deserialize_with = "deserialize_duration"
@@ -259,6 +262,10 @@ fn default_reliable_routes_blocking() -> bool {
 
 fn default_localhost_only() -> bool {
     env::var("ROS_LOCALHOST_ONLY").as_deref() == Ok("1")
+}
+
+fn default_transient_local_cache_multiplier() -> usize {
+    DEFAULT_TRANSIENT_LOCAL_CACHE_MULTIPLIER
 }
 
 fn default_queries_timeout() -> Duration {
