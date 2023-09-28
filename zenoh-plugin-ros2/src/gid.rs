@@ -120,7 +120,6 @@ mod tests {
     use std::ops::Deref;
     use std::str::FromStr;
 
-
     #[test]
     fn test_gid() {
         let str1 = "01106c8324a780d1b9e62c8f000001c1";
