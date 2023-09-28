@@ -244,9 +244,6 @@ pub async fn run(runtime: Runtime, config: Config) {
                     env::var("CYCLONEDDS_URI").unwrap_or_default()
                 ),
             );
-            if config.forward_discovery {
-                warn!("DDS shared memory support enabled but will not be used as forward discovery mode is active.");
-            }
         }
     }
 

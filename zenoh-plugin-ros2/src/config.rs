@@ -1,5 +1,3 @@
-use regex::Regex;
-use serde::de::Visitor;
 //
 // Copyright (c) 2022 ZettaScale Technology
 //
@@ -13,7 +11,8 @@ use serde::de::Visitor;
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use serde::{de, Deserialize, Deserializer};
+use regex::Regex;
+use serde::{de, de::Visitor, Deserialize, Deserializer};
 use std::env;
 use std::fmt;
 use std::time::Duration;

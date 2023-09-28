@@ -116,12 +116,13 @@ impl FromStr for Gid {
 }
 
 mod tests {
-    use crate::gid::Gid;
-    use std::ops::Deref;
-    use std::str::FromStr;
 
     #[test]
     fn test_gid() {
+        use crate::gid::Gid;
+        use std::ops::Deref;
+        use std::str::FromStr;
+
         let str1 = "01106c8324a780d1b9e62c8f000001c1";
         let bytes1 = [
             0x01u8, 0x10, 0x6c, 0x83, 0x24, 0xa7, 0x80, 0xd1, 0xb9, 0xe6, 0x2c, 0x8f, 0x00, 0x00,
@@ -146,6 +147,8 @@ mod tests {
 
     #[test]
     fn test_serde() {
+        use crate::gid::Gid;
+
         let bytes = [
             0x01u8, 0x10, 0x6c, 0x83, 0x24, 0xa7, 0x80, 0xd1, 0xb9, 0xe6, 0x2c, 0x8f, 0x00, 0x00,
             0x01, 0xc1,

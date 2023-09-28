@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use zenoh::buffers::ZBuf;
 #[cfg(feature = "dds_shm")]
-use zenoh::buffers::{ZBuf, ZSlice};
+use zenoh::buffers::ZSlice;
 use zenoh::prelude::*;
 use zenoh::publication::CongestionControl;
 use zenoh::Session;
@@ -114,6 +114,10 @@ struct IoxChunk {
 impl IoxChunk {
     fn as_slice(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.ptr as *const u8, (*self.header).data_size as usize) }
+    }
+
+    fn len(&self) -> usize {
+        unsafe { (*self.header).data_size as usize }
     }
 }
 
@@ -219,8 +223,10 @@ impl DDSRawSample {
     pub fn len(&self) -> usize {
         #[cfg(feature = "dds_shm")]
         {
-            return self.data.iov_len + (*self.header).data_size;
+            self.data.iov_len + self.iox_chunk.as_ref().map(IoxChunk::len).unwrap_or(0)
         }
+
+        #[cfg(not(feature = "dds_shm"))]
         self.data.iov_len
     }
 }

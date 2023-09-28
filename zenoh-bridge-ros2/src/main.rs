@@ -207,11 +207,6 @@ r#"--watchdog=[PERIOD]   'Experimental!! Run a watchdog thread that monitors the
     insert_json5!(config, args, "plugins/ros2/generalise_pubs", for "generalise-pub", .collect::<Vec<_>>());
     insert_json5!(config, args, "plugins/ros2/generalise_subs", for "generalise-sub", .collect::<Vec<_>>());
     insert_json5!(config, args, "plugins/ros2/queries_timeout", if "queries-timeout", .parse::<f64>().unwrap());
-    if args.is_present("fwd-discovery") {
-        config
-            .insert_json5("plugins/ros2/forward_discovery", "true")
-            .unwrap();
-    }
 
     let watchdog_period = if args.is_present("watchdog") {
         args.value_of("watchdog").map(|s| s.parse::<f32>().unwrap())
