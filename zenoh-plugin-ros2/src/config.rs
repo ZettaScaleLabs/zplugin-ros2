@@ -323,10 +323,7 @@ impl<'de> Visitor<'de> for RegexVisitor {
 }
 
 mod tests {
-    use super::*;
-    use serde::{de, Deserialize, Deserializer, Serialize};
-    use std::ops::Deref;
-    use std::str::FromStr;
+    use serde::{Deserialize, Serialize};
 
     #[derive(Deserialize, Debug, Serialize)]
     #[serde(deny_unknown_fields)]

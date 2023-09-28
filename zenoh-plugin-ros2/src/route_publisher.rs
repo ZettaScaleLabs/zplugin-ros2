@@ -27,7 +27,7 @@ use crate::gid::Gid;
 use crate::liveliness_mgt::new_ke_liveliness_pub;
 use crate::ros2_utils::ros2_message_type_to_dds_type;
 use crate::{dds_discovery::*, qos_helpers::*, Config};
-use crate::{serialize_option_as_bool, KE_PREFIX_PUB_CACHE, MAX_NB_TRANSIENT_LOCAL_WRITER};
+use crate::{serialize_option_as_bool, KE_PREFIX_PUB_CACHE};
 
 enum ZPublisher<'a> {
     Publisher(KeyExpr<'a>),

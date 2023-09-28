@@ -197,28 +197,28 @@ impl<'a> RoutesMgr<'a> {
                     }
                 }
             }
-            DiscoveredServiceSrv(node, iface) => {
+            DiscoveredServiceSrv(_node, iface) => {
                 log::info!("... TODO: create Service Server route for {}", iface.name);
             }
-            UndiscoveredServiceSrv(node, iface) => {
+            UndiscoveredServiceSrv(_node, iface) => {
                 log::info!("... TODO: delete Service Server route for {}", iface.name);
             }
-            DiscoveredServiceCli(node, iface) => {
+            DiscoveredServiceCli(_node, iface) => {
                 log::info!("... TODO: create Service Client route for {}", iface.name);
             }
-            UndiscoveredServiceCli(node, iface) => {
+            UndiscoveredServiceCli(_node, iface) => {
                 log::info!("... TODO: delete Service Client route for {}", iface.name);
             }
-            DiscoveredActionSrv(node, iface) => {
+            DiscoveredActionSrv(_node, iface) => {
                 log::info!("... TODO: create Action Server route for {}", iface.name);
             }
-            UndiscoveredActionSrv(node, iface) => {
+            UndiscoveredActionSrv(_node, iface) => {
                 log::info!("... TODO: delete Action Server route for {}", iface.name);
             }
-            DiscoveredActionCli(node, iface) => {
+            DiscoveredActionCli(_node, iface) => {
                 log::info!("... TODO: create Action Client route for {}", iface.name);
             }
-            UndiscoveredActionCli(node, iface) => {
+            UndiscoveredActionCli(_node, iface) => {
                 log::info!("... TODO: delete Action Client route for {}", iface.name);
             }
         }
