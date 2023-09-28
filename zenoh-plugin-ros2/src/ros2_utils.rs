@@ -15,13 +15,6 @@
 use zenoh::prelude::KeyExpr;
 
 /// Convert DDS Topic type to ROS2 Message type
-///
-/// # Examples
-///
-/// ```
-/// assert_eq!(dds_type_to_ros2_message_type("geometry_msgs::msg::dds_::Twist_"), "geometry_msgs/msg//Twist");
-/// assert_eq!(dds_type_to_ros2_message_type("rcl_interfaces::msg::dds_::Log_"), "rcl_interfaces/msg//Log");
-/// ```
 pub fn dds_type_to_ros2_message_type(dds_topic: &str) -> String {
     let result = dds_topic.replace("::dds_::", "::").replace("::", "/");
     if result.ends_with('_') {
@@ -34,11 +27,6 @@ pub fn dds_type_to_ros2_message_type(dds_topic: &str) -> String {
 /// Convert ROS2 Message type to DDS Topic type
 ///
 /// # Examples
-///
-/// ```
-/// assert_eq!(ros2_message_type_to_dds_type("geometry_msgs/msg//Twist"), "geometry_msgs::msg::dds_::Twist_");
-/// assert_eq!(ros2_message_type_to_dds_type("rcl_interfaces/msg//Log"), "rcl_interfaces::msg::dds_::Log_");
-/// ```
 pub fn ros2_message_type_to_dds_type(ros_topic: &str) -> String {
     let mut result = ros_topic.replace("/", "::");
     result
@@ -49,15 +37,6 @@ pub fn ros2_message_type_to_dds_type(ros_topic: &str) -> String {
 }
 
 /// Convert DDS Topic type for ROS2 Service to ROS2 Service type
-///
-/// # Examples
-///
-/// ```
-/// assert_eq!(dds_type_to_ros2_message_type("example_interfaces::srv::dds_::AddTwoInts_Request_"), "example_interfaces/srv/AddTwoInts");
-/// assert_eq!(dds_type_to_ros2_message_type("example_interfaces::srv::dds_::AddTwoInts_Response_"), "example_interfaces/srv/AddTwoInts");
-/// assert_eq!(dds_type_to_ros2_message_type("rcl_interfaces::srv::dds_::ListParameters_Request_"), "rcl_interfaces/srv/ListParameters");
-/// assert_eq!(dds_type_to_ros2_message_type("rcl_interfaces::srv::dds_::ListParameters_Response_"), "rcl_interfaces/srv/ListParameters");
-/// ```
 pub fn dds_type_to_ros2_service_type(dds_topic: &str) -> String {
     dds_type_to_ros2_message_type(
         dds_topic
@@ -70,16 +49,6 @@ pub fn dds_type_to_ros2_service_type(dds_topic: &str) -> String {
 /// Convert DDS Topic type for ROS2 Action to ROS2 Action type
 /// Warning: can't work for "rt/.../_action/status", "rq/.../_action/cancel_goalRequest"
 /// or "rr../_action/cancel_goalReply" topic, since their types are generic
-///
-/// # Examples
-///
-/// ```
-/// assert_eq!(dds_type_to_ros2_message_type("example_interfaces::action::dds_::Fibonacci_SendGoal_Request_"), "example_interfaces/action/Fibonacci");
-/// assert_eq!(dds_type_to_ros2_message_type("example_interfaces::action::dds_::Fibonacci_SendGoal_Response_"), "example_interfaces/action/Fibonacci");
-/// assert_eq!(dds_type_to_ros2_message_type("example_interfaces::action::dds_::Fibonacci_GetResult_Request_"), "example_interfaces/action/Fibonacci");
-/// assert_eq!(dds_type_to_ros2_message_type("example_interfaces::action::dds_::Fibonacci_GetResult_Response_"), "example_interfaces/action/Fibonacci");
-/// assert_eq!(dds_type_to_ros2_message_type("example_interfaces::action::dds_::Fibonacci_FeedbackMessage_"), "example_interfaces/action/Fibonacci");
-/// ```
 pub fn dds_type_to_ros2_action_type(dds_topic: &str) -> String {
     dds_type_to_ros2_message_type(
         dds_topic
@@ -101,5 +70,79 @@ pub fn check_ros_name(name: &str) -> Result<(), String> {
         ))
     } else {
         Ok(())
+    }
+}
+
+mod tests {
+
+    #[test]
+    fn test_types_conversions() {
+        use crate::ros2_utils::*;
+
+        assert_eq!(
+            dds_type_to_ros2_message_type("geometry_msgs::msg::dds_::Twist_"),
+            "geometry_msgs/msg/Twist"
+        );
+        assert_eq!(
+            dds_type_to_ros2_message_type("rcl_interfaces::msg::dds_::Log_"),
+            "rcl_interfaces/msg/Log"
+        );
+
+        assert_eq!(
+            ros2_message_type_to_dds_type("geometry_msgs/msg/Twist"),
+            "geometry_msgs::msg::dds_::Twist_"
+        );
+        assert_eq!(
+            ros2_message_type_to_dds_type("rcl_interfaces/msg/Log"),
+            "rcl_interfaces::msg::dds_::Log_"
+        );
+
+        assert_eq!(
+            dds_type_to_ros2_service_type("example_interfaces::srv::dds_::AddTwoInts_Request_"),
+            "example_interfaces/srv/AddTwoInts"
+        );
+        assert_eq!(
+            dds_type_to_ros2_service_type("example_interfaces::srv::dds_::AddTwoInts_Response_"),
+            "example_interfaces/srv/AddTwoInts"
+        );
+        assert_eq!(
+            dds_type_to_ros2_service_type("rcl_interfaces::srv::dds_::ListParameters_Request_"),
+            "rcl_interfaces/srv/ListParameters"
+        );
+        assert_eq!(
+            dds_type_to_ros2_service_type("rcl_interfaces::srv::dds_::ListParameters_Response_"),
+            "rcl_interfaces/srv/ListParameters"
+        );
+
+        assert_eq!(
+            dds_type_to_ros2_action_type(
+                "example_interfaces::action::dds_::Fibonacci_SendGoal_Request_"
+            ),
+            "example_interfaces/action/Fibonacci"
+        );
+        assert_eq!(
+            dds_type_to_ros2_action_type(
+                "example_interfaces::action::dds_::Fibonacci_SendGoal_Response_"
+            ),
+            "example_interfaces/action/Fibonacci"
+        );
+        assert_eq!(
+            dds_type_to_ros2_action_type(
+                "example_interfaces::action::dds_::Fibonacci_GetResult_Request_"
+            ),
+            "example_interfaces/action/Fibonacci"
+        );
+        assert_eq!(
+            dds_type_to_ros2_action_type(
+                "example_interfaces::action::dds_::Fibonacci_GetResult_Response_"
+            ),
+            "example_interfaces/action/Fibonacci"
+        );
+        assert_eq!(
+            dds_type_to_ros2_action_type(
+                "example_interfaces::action::dds_::Fibonacci_FeedbackMessage_"
+            ),
+            "example_interfaces/action/Fibonacci"
+        );
     }
 }

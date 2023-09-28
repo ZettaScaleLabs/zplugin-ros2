@@ -333,12 +333,12 @@ impl RoutePublisher<'_> {
     }
 }
 
-// Return the read period if keyexpr matches one of the --dds-periodic-topics option
+// Return the read period if keyexpr matches one of the "pub_max_frequencies" option
 fn get_read_period(config: &Config, ke: &keyexpr) -> Option<Duration> {
-    // for (re, freq) in &config.max_frequencies {
-    //     if re.is_match(ke) {
-    //         return Some(Duration::from_secs_f32(1f32 / freq));
-    //     }
-    // }
+    for (re, freq) in &config.pub_max_frequencies {
+        if re.is_match(ke) {
+            return Some(Duration::from_secs_f32(1f32 / freq));
+        }
+    }
     None
 }

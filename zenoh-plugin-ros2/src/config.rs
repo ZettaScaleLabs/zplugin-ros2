@@ -41,6 +41,8 @@ pub struct Config {
     pub ros_localhost_only: bool,
     #[serde(default, flatten)]
     pub allowance: Option<Allowance>,
+    #[serde(default, deserialize_with = "deserialize_max_frequencies")]
+    pub pub_max_frequencies: Vec<(Regex, f32)>,
     #[serde(default)]
     #[cfg(feature = "dds_shm")]
     pub shm_enabled: bool,
@@ -321,57 +323,25 @@ impl<'de> Visitor<'de> for RegexVisitor {
     }
 }
 
-mod tests {
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Deserialize, Debug, Serialize)]
-    #[serde(deny_unknown_fields)]
-    pub struct Config1 {
-        pub domain: u32,
-        #[serde(flatten)]
-        pub allowance: Option<Allowance1>,
+fn deserialize_max_frequencies<'de, D>(deserializer: D) -> Result<Vec<(Regex, f32)>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let strs: Vec<String> = Deserialize::deserialize(deserializer)?;
+    let mut result: Vec<(Regex, f32)> = Vec::with_capacity(strs.len());
+    for s in strs {
+        let i = s
+            .find('=')
+            .ok_or_else(|| de::Error::custom(format!("Invalid 'max_frequency': {s}")))?;
+        let regex = Regex::new(&s[0..i]).map_err(|e| {
+            de::Error::custom(format!("Invalid regex for 'max_frequency': '{s}': {e}"))
+        })?;
+        let frequency: f32 = s[i + 1..].parse().map_err(|e| {
+            de::Error::custom(format!(
+                "Invalid float value for 'max_frequency': '{s}': {e}"
+            ))
+        })?;
+        result.push((regex, frequency));
     }
-
-    #[derive(Deserialize, Debug, Serialize)]
-    pub enum Allowance1 {
-        #[serde(rename = "allow")]
-        Allow(MyRegex),
-        #[serde(rename = "deny")]
-        Deny(MyRegex),
-    }
-
-    #[derive(Deserialize, Debug, Serialize)]
-    pub struct MyRegex {
-        pub pubs: String,
-        pub subs: String,
-    }
-
-    #[test]
-    fn test_serde() {
-        let conf: Config1 = Config1 {
-            domain: 1,
-            allowance: Some(Allowance1::Allow(MyRegex {
-                pubs: "P".into(),
-                subs: "S".into(),
-            })),
-        };
-
-        println!("conf: {conf:?}");
-
-        println!("json: {}", serde_json::to_string(&conf).unwrap());
-
-        let x: Config1 =
-            serde_json::from_str(r#"{"domain":1,"allow":{"pubs":"P","subs":"S"}}"#).unwrap();
-        println!("conf: {x:?}");
-
-        let x: Config1 =
-            serde_json::from_str(r#"{"domain":1,"deny":{"pubs":"P","subs":"S"}}"#).unwrap();
-        println!("conf: {x:?}");
-
-        let x: Config1 = serde_json::from_str(
-            r#"{"domain":1,"allow":{"pubs":"P","subs":"S"},"deny":{"pubs":"P","subs":"S"}}"#,
-        )
-        .unwrap();
-        println!("conf: {x:?}");
-    }
+    Ok(result)
 }
