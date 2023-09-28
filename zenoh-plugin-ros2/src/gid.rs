@@ -116,6 +116,10 @@ impl FromStr for Gid {
 }
 
 mod tests {
+    use crate::gid::Gid;
+    use std::ops::Deref;
+    use std::str::FromStr;
+
 
     #[test]
     fn test_gid() {
