@@ -227,7 +227,7 @@ impl DDSRawSample {
         }
 
         #[cfg(not(feature = "dds_shm"))]
-        self.data.iov_len
+        self.data.iov_len.try_into().unwrap()
     }
 }
 

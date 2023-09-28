@@ -166,13 +166,13 @@ fn key_expr_to_qos(ke: &keyexpr) -> Result<(bool, Qos), String> {
     let mut qos = Qos::default();
     let keyless = elts[0].is_empty();
     if !elts[1].is_empty() {
-        match elts[1].parse::<u32>() {
+        match elts[1].parse::<cyclors::dds_reliability_kind_t>() {
             Ok(i) => qos.reliability = Some(Reliability {kind: ReliabilityKind::from(&i), max_blocking_time: DDS_100MS_DURATION }),
             Err(_) => return Err(format!("Internal Error: unexpected QoS expression: '{ke}' - failed to parse Reliability in 2nd element")),
         }
     }
     if !elts[2].is_empty() {
-        match elts[2].parse::<u32>() {
+        match elts[2].parse::<cyclors::dds_durability_kind_t>() {
             Ok(i) => qos.durability = Some(Durability {kind: DurabilityKind::from(&i)}),
             Err(_) => return Err(format!("Internal Error: unexpected QoS expression: '{ke}' - failed to parse Durability in 3d element")),
         }
@@ -180,7 +180,7 @@ fn key_expr_to_qos(ke: &keyexpr) -> Result<(bool, Qos), String> {
     if !elts[3].is_empty() {
         match elts[3].split_once(',').map(|(s1, s2)|
             (
-                s1.parse::<u32>(),
+                s1.parse::<cyclors::dds_history_kind_t>(),
                 s2.parse::<i32>(),
             )
         ) {
