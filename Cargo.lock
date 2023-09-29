@@ -1126,6 +1126,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "flume"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55ac459de2512911e4b674ce33cf20befaba382d05b62b008afc1c8b57cbf181"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "nanorand",
+ "spin 0.9.8",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3594,7 +3606,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "static_assertions",
 ]
 
@@ -4039,7 +4051,7 @@ dependencies = [
  "base64 0.21.3",
  "env_logger",
  "event-listener",
- "flume",
+ "flume 0.10.14",
  "form_urlencoded",
  "futures",
  "git-version",
@@ -4128,7 +4140,7 @@ name = "zenoh-config"
 version = "0.10.0-dev"
 source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#9b25d117530b390aec086a200eb6dbc4aa969282"
 dependencies = [
- "flume",
+ "flume 0.10.14",
  "json5",
  "num_cpus",
  "serde",
@@ -4173,7 +4185,7 @@ dependencies = [
  "async-std",
  "bincode",
  "env_logger",
- "flume",
+ "flume 0.10.14",
  "futures",
  "log",
  "serde",
@@ -4226,7 +4238,7 @@ source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#9b25d117530b3
 dependencies = [
  "async-std",
  "async-trait",
- "flume",
+ "flume 0.10.14",
  "serde",
  "typenum",
  "zenoh-buffers",
@@ -4380,7 +4392,7 @@ dependencies = [
  "base64 0.21.3",
  "clap 3.2.25",
  "env_logger",
- "flume",
+ "flume 0.10.14",
  "futures",
  "git-version",
  "http-types",
@@ -4410,7 +4422,7 @@ dependencies = [
  "cyclors",
  "derivative",
  "env_logger",
- "flume",
+ "flume 0.11.0",
  "futures",
  "git-version",
  "hex",
@@ -4471,7 +4483,7 @@ source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#9b25d117530b3
 dependencies = [
  "async-std",
  "event-listener",
- "flume",
+ "flume 0.10.14",
  "futures",
  "tokio",
  "zenoh-buffers",
@@ -4488,7 +4500,7 @@ dependencies = [
  "async-global-executor",
  "async-std",
  "async-trait",
- "flume",
+ "flume 0.10.14",
  "log",
  "lz4_flex",
  "paste",
@@ -4518,7 +4530,7 @@ dependencies = [
  "async-std",
  "async-trait",
  "clap 3.2.25",
- "flume",
+ "flume 0.10.14",
  "futures",
  "hex",
  "home",
