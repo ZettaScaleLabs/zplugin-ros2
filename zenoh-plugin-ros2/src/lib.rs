@@ -319,7 +319,7 @@ impl<'a> ROS2PluginRuntime<'a> {
             .liveliness()
             .declare_subscriber(ke_liveliness_all)
             .querying()
-            .with(zenoh::handlers::DefaultHandler{})
+            .with(zenoh::handlers::DefaultHandler {})
             .res_async()
             .await
             .expect("Failed to create Liveliness Subscriber");
